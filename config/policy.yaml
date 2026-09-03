@@ -1,0 +1,75 @@
+# AFTERBELL policy.
+#
+# Law 6: this file is the only place a limit lives. There is no tool the model
+# can call to raise one, and no natural-language path to relaxing one. Changing
+# policy means editing this file and restarting. The SHA-256 of this file is
+# recorded in every receipt.
+#
+# Law 1 / Part VIII: EVERY THRESHOLD BELOW IS AN UNCALIBRATED HYPOTHESIS copied
+# from the specification. Each is replaced by a measured percentile of recorded
+# data before filming, and the calibration table is published in the README.
+# A symbol with fewer than min_rth_samples RTH observations is reported
+# UNCALIBRATED and receives the most restrictive treatment available.
+
+version: 1
+status: UNCALIBRATED          # -> CALIBRATED once Part VIII completes
+
+base_notional_usdt: 5000.0
+
+calibration:
+  min_rth_samples: 300        # per symbol, before a baseline is usable
+  baseline_window_days: 7
+  # Populated by the calibration pass. Empty means: nothing measured yet.
+  measured: {}
+
+# P1 - reference-market gap risk. Ramp is calibrated against measured weekend
+# realised volatility from our own recorder before it is trusted.
+clock:
+  ramp_start_minutes_to_close: 30
+  factors:
+    RTH_OPEN: 1.00
+    RTH_OPEN_RAMP_FLOOR: 0.25
+    RTH_PRE: 0.40
+    RTH_POST: 0.40
+    CLOSED_OVERNIGHT: 0.25
+    CLOSED_WEEKEND_LT_24H: 0.20
+    CLOSED_WEEKEND_24_48H: 0.12
+    CLOSED_WEEKEND_GT_48H: 0.06
+    CLOSED_HOLIDAY_GT_72H: 0.04
+    HALTED: 0.00
+    UNKNOWN: 0.00             # most restrictive, never the loosest (Law 3)
+
+# P2 - off-hours liquidity. Ratios are against a rolling median computed over
+# RTH_OPEN samples ONLY. These denominators cannot be back-filled.
+liquidity:
+  depth_band_pct: 1.0
+  walk_cost_cap_bps: 100.0    # hard gate, overrides every other factor
+  tiers:
+    - {max_spread_ratio: 1.5, min_liquidity_ratio: 0.70, factor: 1.00}
+    - {max_spread_ratio: 3.0, min_liquidity_ratio: 0.40, factor: 0.50}
+    - {max_spread_ratio: 6.0, min_liquidity_ratio: 0.15, factor: 0.20}
+  otherwise_factor: 0.00      # BLOCK
+
+# P3 - basis drift. Bands become empirical percentiles (WATCH p75,
+# DEGRADED p95, BROKEN p99) once the distribution by market state exists.
+basis:
+  bands:
+    NOMINAL:  {max_abs_bps: 100,  factor: 1.00}
+    WATCH:    {max_abs_bps: 250,  factor: 0.75}
+    DEGRADED: {max_abs_bps: 500,  factor: 0.35}
+    BROKEN:   {max_abs_bps: null, factor: 0.00}   # requires explicit confirm
+  degraded_floor_reference_age_s: 172800          # 48h
+  max_reference_age_s: 432000                     # 120h -> BLOCK (Law 3)
+
+# P4 - corporate actions.
+corporate_actions:
+  lookahead_hours: 24
+  block_statuses: [HALTED, PAUSED, BREAK, AUCTION_MATCH]
+
+# P6 - canonical contract. Registry is compiled in and checksummed at load;
+# a mismatch is a BLOCK with no override path.
+registry_sha256: b4ee770b92b077e1ff77d6dbf527400f435cd10eca27dbe936ab4b56b6746f1b
+
+# Law 7 - the guard's entire action space. It may never originate an order or
+# increase a size.
+verdicts: [PASS, WARN, REDUCE, BLOCK]
