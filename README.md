@@ -88,11 +88,15 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 - **Market clock and `REFERENCE_AGE`** (`afterbell/clock.py`) — session state
   machine over a checked-in 2026 exchange calendar, with 17 tests.
 - **Measurement engine** (`afterbell/measure.py`) — half-spread, depth within a
-  band, marketable-order walk cost, and basis. 26 tests in total.
+  band, marketable-order walk cost, and basis.
+- **Receipt ledger** (`afterbell/ledger.py`) — append-only hash-chained JSONL,
+  `hash = sha256(prev_hash || canonical_json(record))`, fsynced per record.
+  Altered, deleted, reordered and forged receipts are each detected and
+  reported by sequence number. 34 tests in total.
 
 ### Not yet built
 
-RTH baselines, resolver, guard, ledger, rationale layer, executor, dashboard.
+RTH baselines, resolver, guard, rationale layer, executor, dashboard.
 
 ### A measurement bug the recorder caught early
 
