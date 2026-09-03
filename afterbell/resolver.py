@@ -17,6 +17,7 @@ over a checked-in table. A model may phrase the question; it never answers it.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
 
@@ -77,6 +78,32 @@ class ContractCheck:
         return self.status is ContractStatus.CANONICAL
 
 
+_MAX_ALIAS_WORDS = max(len(a.split()) for a in ALIASES)
+
+# A token is a run of word characters, and non-ASCII letters are word
+# characters here on purpose. "nvdaa" spelled with a trailing Cyrillic A must
+# come out as one unfamiliar token rather than as the ticker plus a separator,
+# because a lookalike ticker is not the ticker.
+_TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
+
+
+def _phrases(q: str) -> set[str]:
+    """Every 1..n word phrase in the request, for matching whole aliases.
+
+    Matching on raw substrings is what a fuzzy resolver looks like from the
+    inside. The alias "mu" occurs in "must", "much" and "amused", so
+    "I must act now" resolved to Micron - an instrument the request never
+    named - and "buy nvidia, must fill today" read as two instruments and was
+    refused as ambiguous. Both directions are wrong on a live order. Aliases
+    are matched as whole words, and multi-word aliases as adjacent runs of
+    them.
+    """
+    words = _TOKEN.findall(q)
+    return {" ".join(words[i:i + n])
+            for n in range(1, _MAX_ALIAS_WORDS + 1)
+            for i in range(len(words) - n + 1)}
+
+
 def resolve(query: str) -> Resolution:
     """Resolve a request to exactly one instrument, or refuse."""
     if not query or not query.strip():
@@ -88,8 +115,7 @@ def resolve(query: str) -> Resolution:
         return Resolution(query, ResolutionStatus.RESOLVED,
                           REGISTRY[ALIASES[q]])
 
-    # Substring match over aliases, for requests like "buy some nvidia now".
-    hits = {sym for alias, sym in ALIASES.items() if alias in q}
+    hits = {sym for alias, sym in ALIASES.items() if alias in _phrases(q)}
     if len(hits) == 1:
         return Resolution(query, ResolutionStatus.RESOLVED,
                           REGISTRY[hits.pop()])

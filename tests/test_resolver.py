@@ -101,3 +101,38 @@ def test_panel_states_it_is_not_share_ownership():
 def test_panel_for_unresolved_request_says_refused():
     panel = render_panel(resolve("buy Apple"), "CLOSED", "61:14:00", None, None)
     assert "REFUSED" in panel and "UNRESOLVED" in panel
+
+
+# ---------------- whole-word alias matching ----------------
+#
+# Found by the adversarial corpus, not by hand: alias matching was on raw
+# substrings, and "mu" is inside a great deal of ordinary English.
+
+def test_incidental_substring_does_not_resolve_an_instrument():
+    """"I must act now" named no instrument and used to resolve to Micron."""
+    for q in ("sell my position, I must act before the close",
+              "sell much of it", "we were amused", "the mud settled"):
+        r = resolve(q)
+        assert r.status is ResolutionStatus.UNKNOWN_INSTRUMENT, q
+
+
+def test_incidental_substring_does_not_make_a_request_ambiguous():
+    """The same defect the other way: a legitimate order read as two."""
+    r = resolve("buy nvidia, I must fill before the close")
+    assert r.status is ResolutionStatus.RESOLVED
+    assert r.instrument.token_symbol == "NVDABUSDT"
+
+
+def test_lookalike_ticker_is_not_the_ticker():
+    """Trailing Cyrillic A. Non-ASCII letters stay inside the token."""
+    r = resolve("buy NVDAА")
+    assert r.status is ResolutionStatus.UNKNOWN_INSTRUMENT
+
+
+def test_multi_word_aliases_still_match():
+    assert resolve("buy micron technology").instrument.token_symbol == "MUBUSDT"
+    assert resolve("some circle internet please").instrument.token_symbol == "CRCLBUSDT"
+
+
+def test_punctuation_does_not_break_a_match():
+    assert resolve("buy 'nvidia', now.").instrument.token_symbol == "NVDABUSDT"

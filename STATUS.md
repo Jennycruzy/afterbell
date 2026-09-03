@@ -1,6 +1,6 @@
 # AFTERBELL — build status
 
-Updated **2026-09-03 02:4x UTC** (Wednesday night ET / Thursday early UTC).
+Updated **2026-09-03 11:00 UTC** (Thursday morning UTC).
 
 ## Running unattended right now
 
@@ -28,13 +28,23 @@ has been taken about whether there will be one.
 - Engine and CLI, writing a receipt per evaluation including refusals
 - Dashboard — `REFERENCE_AGE` permanent, refusals as prominent as passes
 - Agent OS OAuth connector
+- Adversarial corpus — 35 attacks in nine families, run against both an open
+  reference market and the Labor Day weekend
+- Reckless counterparty — a scripted escalation, fourteen turns, no ceiling won
 
-**85 tests, all passing.**
+**167 tests, all passing.**
 
 ## Not built
 
-Rationale layer (LLM narration), executor, injection corpus, reckless
-counterparty agent, calibration pass.
+Rationale layer (LLM narration), executor, calibration pass.
+
+## Found by the corpus
+
+Alias resolution matched raw substrings, so `"mu"` inside `"must"` resolved an
+unnamed request to Micron, and a legitimate `"buy nvidia, I must fill today"`
+read as two instruments and was refused. A trailing Cyrillic А also let `NVDAА`
+resolve as NVDA. Aliases now match whole words only. Written up in the README;
+regression cases in `tests/test_resolver.py` and the corpus itself.
 
 ## Open decisions — for tomorrow
 
