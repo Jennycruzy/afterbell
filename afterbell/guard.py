@@ -65,6 +65,9 @@ class MarketContext:
     corporate_action: str | None = None
     resolution: Resolution | None = None
     contract: ContractCheck | None = None
+    # Why the reference is missing, when it is. A blank reason on a blocked
+    # receipt is uninvestigable after the fact.
+    reference_note: str | None = None
 
     @property
     def reference_age_s(self) -> float | None:
@@ -371,9 +374,14 @@ def evaluate(req: OrderRequest, ctx: MarketContext, pol: Policy) -> Decision:
 
     blocking = [g for g in gates if g.is_hard_block]
     if blocking:
-        binding = blocking[0].name
+        # Several protections can refuse the same order. Naming only the first
+        # in list order would report a stale reference as the reason an order
+        # was refused when the instrument was also unresolved and the contract
+        # counterfeit, so every blocker is recorded and the rationale names
+        # them all.
+        binding = ",".join(g.name for g in blocking)
         return Decision(Verdict.BLOCK, 0.0, req.notional, binding, gates,
-                        _rationale(Verdict.BLOCK, 0.0, req, ctx, blocking[0]),
+                        _rationale(Verdict.BLOCK, 0.0, req, ctx, blocking),
                         ctx, pol.sha256)
 
     tightest = min(gates, key=lambda g: g.factor)
@@ -391,12 +399,12 @@ def evaluate(req: OrderRequest, ctx: MarketContext, pol: Policy) -> Decision:
 
     binding = tightest.name if allowed < req.notional else "none"
     return Decision(verdict, allowed, req.notional, binding, gates,
-                    _rationale(verdict, allowed, req, ctx, tightest), ctx,
+                    _rationale(verdict, allowed, req, ctx, [tightest]), ctx,
                     pol.sha256)
 
 
 def _rationale(verdict: Verdict, allowed: float, req: OrderRequest,
-               ctx: MarketContext, binding: GateResult) -> str:
+               ctx: MarketContext, binding: list[GateResult]) -> str:
     """Deterministic rationale.
 
     This is the text of record. The language model may narrate a receipt more
@@ -408,15 +416,17 @@ def _rationale(verdict: Verdict, allowed: float, req: OrderRequest,
     head = (f"{verdict.value}: {req.side.value} {req.symbol} "
             f"{req.notional:,.0f} USDT requested")
     if verdict is Verdict.BLOCK:
-        return (f"{head}; blocked by {binding.name} - {binding.detail}. "
+        reasons = "; ".join(f"{g.name} - {g.detail}" for g in binding)
+        return (f"{head}; blocked by {reasons}. "
                 f"Reference market {ctx.clock.state.value}, REFERENCE_AGE {age}.")
+    b = binding[0]
     if verdict is Verdict.REDUCE:
-        return (f"{head}, {allowed:,.0f} permitted; bound by {binding.name} - "
-                f"{binding.detail}. Reference market {ctx.clock.state.value}, "
+        return (f"{head}, {allowed:,.0f} permitted; bound by {b.name} - "
+                f"{b.detail}. Reference market {ctx.clock.state.value}, "
                 f"REFERENCE_AGE {age}.")
     return (f"{head} and permitted in full. Reference market "
             f"{ctx.clock.state.value}, REFERENCE_AGE {age}. "
-            f"Tightest measurement: {binding.name} - {binding.detail}.")
+            f"Tightest measurement: {b.name} - {b.detail}.")
 
 
 def to_receipt(d: Decision, req: OrderRequest) -> dict[str, Any]:
@@ -443,6 +453,7 @@ def to_receipt(d: Decision, req: OrderRequest) -> dict[str, Any]:
         "decision": d.verdict.value,
         "allowed_notional": d.allowed_notional,
         "binding_constraint": d.binding_constraint,
+        "blocking_gates": [g.name for g in d.gates if g.is_hard_block],
         "policy_sha256": d.policy_sha256,
         "registry_sha256": registry_sha256(),
         "rationale": d.rationale,

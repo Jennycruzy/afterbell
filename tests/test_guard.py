@@ -100,7 +100,7 @@ def test_thin_book_blocks_on_walk_cost():
     d = evaluate(req(200.0), ctx_at("2026-09-05T03:00:00", book=thin,
                                     baseline=calibrated(deep_book(t))), POL)
     assert d.verdict is Verdict.BLOCK
-    assert d.binding_constraint == "P2"
+    assert "P2" in d.binding_constraint
 
 
 def test_uncalibrated_symbol_gets_the_most_restrictive_tier():
@@ -127,7 +127,7 @@ def test_missing_reference_blocks():
     c = ctx_at("2026-09-05T03:00:00")
     c.reference_price = None
     d = evaluate(req(1000.0), c, POL)
-    assert d.verdict is Verdict.BLOCK and d.binding_constraint == "P3"
+    assert d.verdict is Verdict.BLOCK and "P3" in d.binding_constraint
 
 
 def test_wide_basis_blocks():
@@ -147,7 +147,7 @@ def test_stale_reference_floors_to_degraded_even_when_basis_is_tight():
 
 def test_reference_beyond_the_age_cap_blocks():
     d = evaluate(req(1000.0), ctx_at("2026-09-05T03:00:00", ref_age_h=200), POL)
-    assert d.verdict is Verdict.BLOCK and d.binding_constraint == "P3"
+    assert d.verdict is Verdict.BLOCK and "P3" in d.binding_constraint
 
 
 # ---------------- P4, P5, P6 ----------------
@@ -160,19 +160,19 @@ def test_halted_pair_blocks():
 def test_corporate_action_blocks_new_entry():
     d = evaluate(req(1000.0), ctx_at("2026-09-03T15:00:00",
                                      corporate_action="earnings"), POL)
-    assert d.verdict is Verdict.BLOCK and d.binding_constraint == "P4"
+    assert d.verdict is Verdict.BLOCK and "P4" in d.binding_constraint
 
 
 def test_unresolved_instrument_blocks():
     d = evaluate(req(1000.0), ctx_at("2026-09-03T15:00:00", query="buy Apple"), POL)
-    assert d.verdict is Verdict.BLOCK and d.binding_constraint == "P5"
+    assert d.verdict is Verdict.BLOCK and "P5" in d.binding_constraint
 
 
 def test_counterfeit_contract_blocks_despite_a_clean_audit():
     c = verify_contract("NVDABUSDT", "0xDEAD00000000000000000000000000000000dead",
                         audit_verdict="no honeypot detected")
     d = evaluate(req(1000.0), ctx_at("2026-09-03T15:00:00", contract=c), POL)
-    assert d.verdict is Verdict.BLOCK and d.binding_constraint == "P6"
+    assert d.verdict is Verdict.BLOCK and "P6" in d.binding_constraint
     assert "either check alone is insufficient" in d.rationale or True
     g = next(g for g in d.gates if g.name == "P6")
     assert "blocks it regardless" in g.detail
@@ -223,3 +223,20 @@ def test_refusals_produce_a_receipt_too():
     assert r["decision"] == "BLOCK"
     assert r["allowed_notional"] == 0.0
     assert "unresolved" in r["rationale"].lower()
+
+
+def test_every_blocking_gate_is_named_not_just_the_first():
+    """An order can fail several protections at once. Reporting only the
+    first in list order would blame a stale reference for an order that was
+    also unresolved and counterfeit."""
+    from afterbell.resolver import verify_contract as vc
+    c = ctx_at("2026-09-05T03:00:00", query="buy Apple",
+               contract=vc("NVDABUSDT", "0xDEAD", audit_verdict="clean"))
+    c.reference_price = None
+    d = evaluate(req(1000.0), c, POL)
+    assert d.verdict is Verdict.BLOCK
+    for gate in ("P3", "P5", "P6"):
+        assert gate in d.binding_constraint
+        assert gate in d.rationale
+    r = to_receipt(d, req(1000.0))
+    assert set(r["blocking_gates"]) == {"P3", "P5", "P6"}

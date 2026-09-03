@@ -106,9 +106,35 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 - **The guard** (`afterbell/guard.py`) — P1–P6, one sizing function, factors
   combined by `min()` and never by product. 84 tests in total.
 
+- **Reference price** (`afterbell/reference.py`) — last regular-session trade,
+  or the session's official close re-timestamped to the actual closing bell.
+  Extended-hours prints are flagged and never used as a reference.
+- **Engine and CLI** (`afterbell/engine.py`) — assembles a context from live
+  data, evaluates, and writes the receipt. 85 tests in total.
+
 ### Not yet built
 
 Rationale layer, executor, dashboard.
+
+## Using it
+
+```python
+from afterbell.engine import Guard
+from afterbell.guard import OrderRequest
+from afterbell.measure import Side
+
+guard = Guard.from_policy("config/policy.yaml")
+decision = guard.evaluate(OrderRequest("NVDABUSDT", Side.BUY, 5000.0,
+                                       query="buy Nvidia"))
+if decision.allowed_notional > 0:
+    ...  # place the order at decision.allowed_notional
+```
+
+Four lines around an existing agent, trading logic untouched. Or from a shell:
+
+```
+python -m afterbell.engine --symbol NVDABUSDT --notional 5000 --query "buy Nvidia"
+```
 
 ### Three bugs the guard's own tests found
 
