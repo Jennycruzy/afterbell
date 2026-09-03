@@ -293,15 +293,46 @@ The reference price is the **last regular-session trade** of the underlying, not
 the last extended-hours print and not an oracle tick. Extended-hours prints are
 recorded and flagged `EXT`; they are information, not a reference.
 
-Reference data comes from **Alpaca**, which is the clearing broker for the
-shares behind these tokens — the guard reads its reference from the firm that
-custodies the underlying.
+The default provider is **Yahoo**, which needs no key and no account. Alpaca
+remains supported behind `REFERENCE_PROVIDER=alpaca` for anyone who wants the
+reference to come from the firm that clears the shares behind these tokens.
 
-_Measured limitation:_ the free Alpaca tier serves the **IEX** feed only, and
-its off-hours quotes are not usable as a reference — observed 2026-09-02
-20:00Z, NVDA quoted bid 212.20 / ask 0.00 against a 224.435 last trade, and
-TSLA quoted 335.51 / 371.79 around a 355.68 trade. This is precisely why
-`REFERENCE_AGE` is defined against the last regular-session *trade*.
+Yahoo is the default for three measured reasons, not for convenience.
+
+**It holds no credential.** Alpaca issues no read-only key — a credential that
+fetches a price can also place an order, and its rate limits are shared across
+every application using that account. This repository is public and its central
+claim is that nothing in it can trade. A provider needing no credential at all
+is the stronger form of that claim; there is no key here to leak, and none to
+collide with another application's rate limit.
+
+**Its timestamp needs no correction.** `regularMarketTime` is the timestamp of
+the last regular-session print, so it tracks the tape while the session is open
+and stops at the bell once it closes. Alpaca's daily bar is stamped 04:00Z and
+has to be re-stamped to the real closing bell before `REFERENCE_AGE` means
+anything — a correction that is easy to get wrong and invisible when you do.
+
+**It is the consolidated tape.** The free Alpaca tier serves **IEX** only.
+Cross-checked 2026-09-03: NVDA 224.41 consolidated against the 224.435 IEX
+print measured the previous session, 1.1bps apart.
+
+The provider's stamp is never trusted on its own. It is checked against this
+project's own exchange calendar, and a provider asserting a regular-session
+print at a time when no regular session was running is refused rather than
+believed — including a stamp from the future, from a weekend, or from Labor
+Day.
+
+_Measured limitation:_ the free Alpaca tier's off-hours **quotes** are not
+usable as a reference — observed 2026-09-02 20:00Z, NVDA quoted bid 212.20 /
+ask 0.00 against a 224.435 last trade, and TSLA quoted 335.51 / 371.79 around a
+355.68 trade. Quotes are therefore never used by either provider. This is
+precisely why `REFERENCE_AGE` is defined against the last regular-session
+*trade*.
+
+_Measured limitation:_ the spec names Stooq as a third-tier fallback. As of
+2026-09-03 Stooq answers automated CSV requests with a JavaScript
+proof-of-work challenge, so it cannot serve an unattended recorder. Finnhub and
+Twelve Data remain viable and both need an email-only signup.
 
 ## Calibration
 

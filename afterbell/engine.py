@@ -32,7 +32,9 @@ from afterbell.instruments import REGISTRY
 from afterbell.ledger import Ledger
 from afterbell.measure import Book, Side
 from afterbell.policy import Policy, load as load_policy
-from afterbell.reference import ReferenceUnavailable, from_snapshot
+from afterbell.reference import (
+    YAHOO_CHART, ReferenceUnavailable, from_snapshot, from_yahoo,
+)
 from afterbell.resolver import resolve, verify_contract
 
 BINANCE = "https://api.binance.com"
@@ -96,7 +98,15 @@ class Guard:
             return None
 
     def fetch_reference(self, underlying: str):
-        """Reference price, or None with the reason recorded by the caller."""
+        """Reference price, or None with the reason recorded by the caller.
+
+        Yahoo by default: it needs no credential, so this path holds none.
+        Alpaca stays available for anyone who has a key and wants the reference
+        to come from the firm that custodies the underlying.
+        """
+        if os.environ.get("REFERENCE_PROVIDER", "yahoo").strip().lower() \
+                != "alpaca":
+            return self._fetch_yahoo(underlying)
         key = os.environ.get("ALPACA_API_KEY", "").strip()
         sec = os.environ.get("ALPACA_SECRET_KEY", "").strip()
         if not key or not sec:
@@ -114,6 +124,19 @@ class Guard:
             return None, f"no snapshot returned for {underlying}"
         try:
             return from_snapshot(underlying, snap), None
+        except ReferenceUnavailable as exc:
+            return None, str(exc)
+
+    def _fetch_yahoo(self, underlying: str):
+        try:
+            r = self._client.get(f"{YAHOO_CHART}/{underlying}",
+                                 params={"range": "1d", "interval": "1d"})
+            r.raise_for_status()
+            meta = r.json()["chart"]["result"][0]["meta"]
+        except Exception as exc:
+            return None, f"reference fetch failed: {type(exc).__name__}: {exc}"
+        try:
+            return from_yahoo(underlying, meta), None
         except ReferenceUnavailable as exc:
             return None, str(exc)
 

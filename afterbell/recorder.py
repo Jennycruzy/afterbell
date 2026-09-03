@@ -28,9 +28,11 @@ from pathlib import Path
 import httpx
 
 from afterbell.instruments import TOKEN_SYMBOLS, UNDERLYINGS, registry_sha256
+from afterbell.reference import ReferenceUnavailable, from_yahoo
 
 BINANCE = "https://api.binance.com"
 ALPACA_DATA = "https://data.alpaca.markets"
+YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart"
 ALPACA_TRADE = "https://paper-api.alpaca.markets"
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -102,10 +104,15 @@ class Recorder:
             {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": sec}
             if key and sec else None
         )
-        if self.alpaca_headers is None:
+        self.provider = os.environ.get(
+            "REFERENCE_PROVIDER", "yahoo").strip().lower()
+        if self.provider == "alpaca" and self.alpaca_headers is None:
             _log("ALPACA CREDENTIALS ABSENT - reference side will write gap "
                  "markers every cycle until they are supplied. Token side is "
                  "unaffected and records normally (Law 10).")
+        elif self.provider != "alpaca":
+            _log(f"reference provider: {self.provider} - no credential held "
+                 "on either side of this recorder.")
         self.cycle = 0
 
     # ---------------- Binance: no credential, ever (Law 10) ----------------
@@ -199,7 +206,59 @@ class Recorder:
             _gap(dt, self.cycle, "alpaca", path, f"bad json: {exc}")
             return None
 
+    # ---------------- Yahoo: reference side, no credential ----------------
+
+    def _get_yahoo(self, symbol: str, dt: datetime):
+        try:
+            r = self.client.get(f"{YAHOO_CHART}/{symbol}",
+                                params={"range": "1d", "interval": "1d"})
+        except Exception as exc:
+            _gap(dt, self.cycle, "yahoo", symbol, f"{type(exc).__name__}: {exc}")
+            return None
+        if r.status_code != 200:
+            _gap(dt, self.cycle, "yahoo", symbol,
+                 f"HTTP {r.status_code}: {r.text[:300]}")
+            return None
+        try:
+            return r.json()["chart"]["result"][0]["meta"]
+        except Exception as exc:
+            _gap(dt, self.cycle, "yahoo", symbol, f"bad json: {exc}")
+            return None
+
+    def record_reference_yahoo(self, dt: datetime) -> bool:
+        """One record per cycle, five symbols, no credential.
+
+        The raw `meta` block is stored alongside the derived price so a later
+        reader can re-derive the reference without trusting this code, and can
+        see a provider disagreeing with the calendar if it ever does.
+        """
+        metas, derived = {}, {}
+        for sym in UNDERLYINGS:
+            meta = self._get_yahoo(sym, dt)
+            if meta is None:
+                continue
+            metas[sym] = meta
+            try:
+                ref = from_yahoo(sym, meta, dt)
+            except ReferenceUnavailable as exc:
+                _gap(dt, self.cycle, "yahoo", sym, str(exc))
+                continue
+            derived[sym] = {"price": ref.price, "ts": _iso(ref.ts),
+                            "source": ref.source, "provider": ref.provider,
+                            "age_s": (dt - ref.ts).total_seconds()}
+        if not metas:
+            return False
+        _append(dt, "reference", {
+            "kind": "reference", "ts": _iso(dt), "cycle": self.cycle,
+            "provider": "yahoo", "meta": metas, "derived": derived,
+            "snapshots_ok": bool(metas),
+            "derived_ok": len(derived) == len(UNDERLYINGS),
+        })
+        return True
+
     def record_reference(self, dt: datetime) -> bool:
+        if self.provider != "alpaca":
+            return self.record_reference_yahoo(dt)
         snap = self._get_alpaca(ALPACA_DATA, "/v2/stocks/snapshots",
                                 {"symbols": ",".join(UNDERLYINGS)}, dt)
         clock = self._get_alpaca(ALPACA_TRADE, "/v2/clock", {}, dt)

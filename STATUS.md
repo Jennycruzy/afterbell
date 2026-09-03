@@ -1,12 +1,12 @@
 # AFTERBELL — build status
 
-Updated **2026-09-03 11:00 UTC** (Thursday morning UTC).
+Updated **2026-09-03 11:15 UTC** (Thursday morning UTC).
 
 ## Running unattended right now
 
 | process | unit | credential | state |
 |---|---|---|---|
-| Recorder | `afterbell-recorder.service` | none (Law 10) | active, enabled at boot |
+| Recorder | `afterbell-recorder.service` | none, either side | active, enabled at boot |
 | Dashboard | `afterbell-dashboard.service` | none | active on `127.0.0.1:8100` |
 | Watchdog | cron, every 5 min | none | restarts a stale recorder, logs disk pressure |
 
@@ -28,11 +28,12 @@ has been taken about whether there will be one.
 - Engine and CLI, writing a receipt per evaluation including refusals
 - Dashboard — `REFERENCE_AGE` permanent, refusals as prominent as passes
 - Agent OS OAuth connector
+- Reference feed on Yahoo — no key, no account, live and recording
 - Adversarial corpus — 35 attacks in nine families, run against both an open
   reference market and the Labor Day weekend
 - Reckless counterparty — a scripted escalation, fourteen turns, no ceiling won
 
-**167 tests, all passing.**
+**182 tests, all passing.**
 
 ## Not built
 
@@ -60,13 +61,17 @@ regression cases in `tests/test_resolver.py` and the corpus itself.
 
 ## Blocked on the account holder
 
-1. **Alpaca keys** — highest value. P3 refuses every request today for want of a
-   reference price, so basis is entirely untested against live data. Put them in
-   `.env` as `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`.
-2. **Domain + A record → `54.154.121.30`**, then `sudo ./deploy/publish.sh <domain>`.
-3. **`python scripts/connect_binance.py --manual`, run on this box** — settles
+1. **Domain + A record → `54.154.121.30`**, then `sudo ./deploy/publish.sh <domain>`.
+2. **`python scripts/connect_binance.py --manual`, run on this box** — settles
    whether the sub-account trades bStocks, whether the jurisdiction is eligible,
    and whether the tokenized-securities tooling resolves NVDAB.
+
+The Alpaca blocker is **closed without a key**. A second Alpaca account was not
+obtainable without another KYC, and reusing the existing one was the wrong
+answer anyway: Alpaca issues no read-only credential, so that key carries order
+authority and a shared rate limit into a public repo. The spec's own source
+table lists fallbacks for exactly this. Yahoo needs no account, stamps the real
+closing bell, and serves the consolidated tape. P3 now measures a live basis.
 
 ## Known gaps
 
