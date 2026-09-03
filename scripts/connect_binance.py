@@ -33,6 +33,11 @@ import httpx
 
 ROOT = Path(__file__).resolve().parent.parent
 ENV = ROOT / ".env"
+# The PKCE verifier and the state must survive between printing the URL and
+# pasting the redirect back, because those are two separate commands when the
+# browser is on a different machine from this one. Without this the secret dies
+# with the process and the login silently cannot be completed.
+PENDING = ROOT / "data" / ".oauth_pending.json"
 DISCOVERY = "https://agent.binance.com/.well-known/oauth-authorization-server"
 MCP_URL = "https://agent.binance.com/mcp/agentic"
 CLIENT_ID = ("https://raw.githubusercontent.com/Jennycruzy/afterbell/"
@@ -106,7 +111,27 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manual", action="store_true",
                     help="paste the redirected URL instead of listening")
+    ap.add_argument("--url-only", action="store_true",
+                    help="print the login URL and exit, keeping the PKCE "
+                         "verifier on disk for --finish")
+    ap.add_argument("--finish", metavar="URL", default=None,
+                    help="complete a --url-only login with the URL your "
+                         "browser was redirected to")
     a = ap.parse_args()
+
+    if a.finish:
+        if not PENDING.exists():
+            sys.exit("no login in progress; run --url-only first")
+        saved = json.loads(PENDING.read_text())
+        meta, verifier, state = saved["meta"], saved["verifier"], saved["state"]
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(a.finish).query)
+        _code.update({k: v[0] for k, v in q.items()})
+        if not _code.get("code") and not _code.get("error"):
+            sys.exit("that URL carries no ?code= parameter. Copy the whole "
+                     "address bar after approving, even if the page failed "
+                     "to load - the code is in the URL, not in the page.")
+        PENDING.unlink()
+        return _complete(meta, verifier, state)
 
     meta = discover()
     verifier, challenge = pkce()
@@ -115,6 +140,20 @@ def main() -> None:
         "response_type": "code", "client_id": CLIENT_ID,
         "redirect_uri": REDIRECT, "state": state,
         "code_challenge": challenge, "code_challenge_method": "S256"})
+
+    if a.url_only:
+        PENDING.parent.mkdir(parents=True, exist_ok=True)
+        PENDING.write_text(json.dumps(
+            {"meta": meta, "verifier": verifier, "state": state}))
+        PENDING.chmod(0o600)
+        print("\nOpen this URL in your browser and approve access:\n")
+        print("  " + url + "\n")
+        print("The browser will then try to reach 127.0.0.1:8765 and will")
+        print("probably show a connection error. That is expected and fine -")
+        print("the part that matters is in the address bar. Copy the WHOLE")
+        print("address and run:\n")
+        print("  python scripts/connect_binance.py --finish '<paste it here>'\n")
+        return
 
     print("\nOpen this URL and approve access:\n")
     print("  " + url + "\n")
@@ -135,6 +174,10 @@ def main() -> None:
             pass
         srv.shutdown()
 
+    _complete(meta, verifier, state)
+
+
+def _complete(meta: dict, verifier: str, state: str) -> None:
     if "error" in _code:
         sys.exit(f"authorization failed: {_code}")
     if _code.get("state") != state:
