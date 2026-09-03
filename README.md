@@ -101,9 +101,45 @@ off-hours order-book data it collects cannot be back-filled after the fact.
   policy, rejects a clock factor above 1.0 outright, and refuses to run if the
   canonical registry checksum has drifted from the policy. 42 tests in total.
 
+- **Resolver** (`afterbell/resolver.py`) — full instrument chain plus canonical
+  contract verification, refusing rather than guessing.
+- **The guard** (`afterbell/guard.py`) — P1–P6, one sizing function, factors
+  combined by `min()` and never by product. 84 tests in total.
+
 ### Not yet built
 
-Resolver, guard, rationale layer, executor, dashboard.
+Rationale layer, executor, dashboard.
+
+### Three bugs the guard's own tests found
+
+Written up because each was a silent failure of the kind this project exists to
+argue against.
+
+1. **The forward-gap ladder flattened the whole session.** Friday 14:00 with the
+   market wide open was sized identically to Friday 15:55, five minutes from the
+   bell, because the 89-hour gap ahead clamped every sample in the day. While
+   the reference market is open a position can still be exited against a live
+   venue, so the darkness ahead now sets the *floor* the intraday ramp descends
+   to rather than flattening the ramp out of existence.
+2. **`CLOSED_WEEKEND` was not a key in the policy table**, which held
+   `CLOSED_WEEKEND_LT_24H` and similar. `factors.get(state, 0.0)` therefore
+   returned 0.0 and hard-blocked every request all weekend — a `|| 0` default
+   hidden inside a `.get()`, and precisely what Law 3 forbids. The table now
+   carries one entry per market state and the loader refuses to start if any
+   state is missing.
+3. **Pair status was checked against a blocklist.** The policy named `HALTED`;
+   Binance publishes `HALT`. A halted pair passed. It is now an allowlist — only
+   an explicitly tradable status trades, and an unrecognised one blocks.
+
+### A property of the sizing curve worth stating
+
+Permitted size does not fall monotonically across the weekend. Saturday 03:00
+allows less than Sunday 12:00, because two ladders pull in opposite directions:
+`REFERENCE_AGE` grows as the weekend runs on, while the darkness still ahead
+shrinks. New exposure taken on Sunday is held across ~49 hours before it can be
+exited against a live reference; the same exposure on Saturday is held across
+~82. The guard sizes on the worse of the two, so the curve dips at the point of
+maximum remaining darkness rather than at the point of maximum staleness.
 
 ### A measurement bug the recorder caught early
 

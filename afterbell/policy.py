@@ -71,6 +71,14 @@ class Policy:
         return float(self.raw["clock"]["ramp_start_minutes_to_close"])
 
     @property
+    def backward_gap(self) -> list[dict]:
+        return list(self.raw["clock"]["backward_gap"])
+
+    @property
+    def forward_gap(self) -> list[dict]:
+        return list(self.raw["clock"]["forward_gap"])
+
+    @property
     def basis_bands(self) -> dict[str, dict[str, Any]]:
         return dict(self.raw["basis"]["bands"])
 
@@ -83,8 +91,13 @@ class Policy:
         return float(self.raw["basis"]["max_reference_age_s"])
 
     @property
-    def block_statuses(self) -> set[str]:
-        return set(self.raw["corporate_actions"]["block_statuses"])
+    def tradable_statuses(self) -> set[str]:
+        return {str(x).upper()
+                for x in self.raw["corporate_actions"]["tradable_statuses"]}
+
+    @property
+    def ramp_floor(self) -> float:
+        return float(self.raw["clock"]["ramp_floor"])
 
     @property
     def corp_action_lookahead_h(self) -> float:
@@ -133,6 +146,13 @@ def load(path: str | Path | None = None) -> Policy:
     verdicts = set(raw["verdicts"])
     if verdicts != {"PASS", "WARN", "REDUCE", "BLOCK"}:
         raise PolicyError(f"verdict set must be exactly PASS/WARN/REDUCE/BLOCK, got {verdicts}")
+
+    # Law 3: every market state must have a chosen factor. A state that falls
+    # through to a default is a state nobody sized.
+    from afterbell.clock import MarketState
+    missing = [s.value for s in MarketState if s.value not in pol.clock_factors]
+    if missing:
+        raise PolicyError(f"policy has no clock factor for states: {missing}")
 
     for name, factor in pol.clock_factors.items():
         if not 0.0 <= factor <= 1.0:

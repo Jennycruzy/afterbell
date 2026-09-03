@@ -24,20 +24,49 @@ calibration:
 
 # P1 - reference-market gap risk. Ramp is calibrated against measured weekend
 # realised volatility from our own recorder before it is trusted.
+#
+# Three ladders combine by min(), never by product:
+#   state    - where the reference market is right now
+#   backward - how stale the last regular print already is (REFERENCE_AGE)
+#   forward  - how much darkness lies ahead before the next regular print
+#
+# The forward ladder is what separates a Friday evening from a Tuesday evening.
+# Both are RTH_POST with a fresh reference, but the first has ~89h of darkness
+# ahead and the second ~14h. Sizing on the state label alone would treat the
+# more dangerous of the two as the safer.
 clock:
   ramp_start_minutes_to_close: 30
+
+  # Keyed on REFERENCE_AGE, seconds. Applies once the print is already stale.
+  backward_gap:
+    - {max_age_s: 86400,  factor: 1.00}   # <= 24h
+    - {max_age_s: 172800, factor: 0.12}   # 24-48h
+    - {max_age_s: 259200, factor: 0.06}   # 48-72h
+    - {max_age_s: null,   factor: 0.04}   # > 72h
+
+  # Keyed on seconds until the next regular session opens.
+  forward_gap:
+    - {max_gap_s: 86400,  factor: 1.00}   # ordinary overnight
+    - {max_gap_s: 172800, factor: 0.20}   # a weekend ahead
+    - {max_gap_s: 259200, factor: 0.12}
+    - {max_gap_s: null,   factor: 0.06}   # a long holiday weekend ahead
+  # One entry per MarketState, all eight required. The loader refuses to start
+  # if any is missing: a state that falls through to a default is a state whose
+  # sizing nobody chose. The age-based weekend tiers the spec puts here live in
+  # backward_gap below instead, so this table stays keyed on states that
+  # actually exist.
   factors:
     RTH_OPEN: 1.00
-    RTH_OPEN_RAMP_FLOOR: 0.25
     RTH_PRE: 0.40
     RTH_POST: 0.40
     CLOSED_OVERNIGHT: 0.25
-    CLOSED_WEEKEND_LT_24H: 0.20
-    CLOSED_WEEKEND_24_48H: 0.12
-    CLOSED_WEEKEND_GT_48H: 0.06
-    CLOSED_HOLIDAY_GT_72H: 0.04
+    CLOSED_WEEKEND: 0.20
+    CLOSED_HOLIDAY: 0.12
     HALTED: 0.00
     UNKNOWN: 0.00             # most restrictive, never the loosest (Law 3)
+  # Floor the intraday ramp descends to. Tightened further by forward_gap when
+  # the coming close leads into a weekend or a holiday.
+  ramp_floor: 0.25
 
 # P2 - off-hours liquidity. Ratios are against a rolling median computed over
 # RTH_OPEN samples ONLY. These denominators cannot be back-filled.
@@ -64,7 +93,10 @@ basis:
 # P4 - corporate actions.
 corporate_actions:
   lookahead_hours: 24
-  block_statuses: [HALTED, PAUSED, BREAK, AUCTION_MATCH]
+  # An allowlist, not a blocklist. Binance publishes statuses this project has
+  # not enumerated, and an unrecognised status must never fall through to a
+  # pass. Only an explicitly tradable pair trades.
+  tradable_statuses: [TRADING]
 
 # P6 - canonical contract. Registry is compiled in and checksummed at load;
 # a mismatch is a BLOCK with no override path.
