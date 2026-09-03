@@ -268,6 +268,13 @@ There is no dynamic client registration endpoint, but the authorization server
 advertises `client_id_metadata_document_supported`, so `client_id` is the URL of
 `oauth/client.json` in this repository.
 
+## Operations
+
+Two unattended services, both unauthenticated and read-only:
+`afterbell-recorder` and `afterbell-dashboard`, with a cron watchdog that
+restarts a stale recorder every five minutes. See `STATUS.md` for what is
+running, what is built, and what is still open.
+
 ## Known limitations
 
 - AFTERBELL **cannot fire Binance's Emergency Stop** — that is a manual web-UI
@@ -276,9 +283,15 @@ advertises `client_id_metadata_document_supported`, so `client_id` is the URL of
 - Calibration rests on a small number of days of data, stated explicitly above
   once measured.
 - Whether the `binance-tokenized-securities-info` skill resolves bStocks (it
-  self-describes as covering Ondo tokenized stocks) is **untested**. If it does
-  not, P4 degrades to `exchangeInfo` status plus Alpaca announcements, and that
-  will be stated here rather than quietly patched.
+  self-describes as covering Ondo tokenized stocks) is **untested**. It cannot
+  be tested without an authorized account, because the Agent OS gateway rejects
+  unauthenticated reads. If it does not resolve them, P4 degrades to
+  `exchangeInfo` status plus Alpaca announcements, and that will be stated here
+  rather than quietly patched.
+- **There is no off-site backup of the recorded data.** The Friday-to-Tuesday
+  window exists once and cannot be recreated; a disk failure would lose it.
+- **No executor exists.** The whole package makes three HTTP calls and all three
+  are `GET`. Whether AFTERBELL will ever place an order is an open decision.
 
 ## Licence and disclaimer
 
