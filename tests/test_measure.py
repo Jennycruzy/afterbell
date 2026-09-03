@@ -80,3 +80,25 @@ def test_basis_sign_and_magnitude():
 def test_basis_refuses_a_non_positive_reference():
     with pytest.raises(ValueError):
         basis_bps(100.0, 0.0)
+
+
+def test_truncated_book_refuses_to_report_depth():
+    """A ladder cut off by our own request is a lower bound, not a
+    measurement. This is the 4.8x understatement that shipped for 16 cycles."""
+    bids = [(99.99 - i * 0.01, 10) for i in range(20)]   # 99.99 -> 99.80
+    asks = [(100.01 + i * 0.01, 10) for i in range(20)]  # 100.01 -> 100.20
+    b = Book("T", TS, tuple(Level(p, q) for p, q in bids),
+             tuple(Level(p, q) for p, q in asks), depth_limit=20)
+    assert b.is_truncated
+    assert not b.spans(1.0)          # ladder reaches only ~0.19% from mid
+    assert depth_within(b, 1.0) is None
+    # but a band the ladder does cover is measurable
+    assert depth_within(b, 0.1) is not None
+
+
+def test_book_that_ends_naturally_is_measured():
+    """Every level the venue holds, well inside the request limit: this is the
+    whole book, so the band is measurable even though the ladder is short."""
+    b = Book("T", TS, (Level(99.0, 10),), (Level(101.0, 10),), depth_limit=5000)
+    assert not b.is_truncated
+    assert depth_within(b, 1.0) == pytest.approx(99.0 * 10 + 101.0 * 10)

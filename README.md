@@ -94,9 +94,16 @@ off-hours order-book data it collects cannot be back-filled after the fact.
   Altered, deleted, reordered and forged receipts are each detected and
   reported by sequence number. 34 tests in total.
 
+- **Session baselines** (`afterbell/baselines.py`) — per-symbol rolling medians
+  over `RTH_OPEN` samples only, with sample counts and an explicit
+  `UNCALIBRATED` state that refuses to produce a ratio.
+- **Policy loader** (`afterbell/policy.py`) — validates and checksums the
+  policy, rejects a clock factor above 1.0 outright, and refuses to run if the
+  canonical registry checksum has drifted from the policy. 42 tests in total.
+
 ### Not yet built
 
-RTH baselines, resolver, guard, rationale layer, executor, dashboard.
+Resolver, guard, rationale layer, executor, dashboard.
 
 ### A measurement bug the recorder caught early
 
@@ -113,6 +120,12 @@ The correction is large: NVDABUSDT depth within ±1% went from $121k measured at
 that would have propagated into every P2 baseline and every liquidity ratio
 derived from one. It was found by computing against recorded data rather than
 trusting the recorder's defaults, which is the entire argument for Law 1.
+
+The measurement layer now distinguishes a ladder that **ends** from one that was
+**cut off**: each record carries the depth limit it was taken at, and a band
+whose edge falls beyond a truncated ladder returns no measurement rather than a
+lower bound. The 16 cycles recorded at 20 levels are therefore excluded from
+every statistic automatically instead of quietly dragging the medians down.
 
 ### One deliberate deviation from the design spec
 

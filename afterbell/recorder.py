@@ -168,6 +168,7 @@ class Recorder:
                 "status": statuses.get(sym),
                 "bid": book.get("bidPrice"), "bid_qty": book.get("bidQty"),
                 "ask": book.get("askPrice"), "ask_qty": book.get("askQty"),
+                "depth_limit": DEPTH_LEVELS,
                 "last_update_id": depth.get("lastUpdateId"),
                 "bids": depth["bids"], "asks": depth["asks"],
                 "trades": trades,

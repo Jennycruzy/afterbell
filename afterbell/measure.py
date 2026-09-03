@@ -43,6 +43,11 @@ class Book:
     ts: datetime
     bids: tuple[Level, ...]   # descending price
     asks: tuple[Level, ...]   # ascending price
+    # Levels requested from the venue. When a side returns exactly this many,
+    # the ladder was cut off by the request rather than by the end of the book,
+    # and anything measured beyond its edge is a lower bound rather than a
+    # measurement. Records written before this field existed were taken at 20.
+    depth_limit: int = 20
 
     @classmethod
     def from_record(cls, rec: dict) -> "Book | None":
@@ -52,7 +57,20 @@ class Book:
         if not bids or not asks:
             return None
         ts = datetime.fromisoformat(rec["ts"].replace("Z", "+00:00"))
-        return cls(rec["symbol"], ts.astimezone(timezone.utc), bids, asks)
+        return cls(rec["symbol"], ts.astimezone(timezone.utc), bids, asks,
+                   int(rec.get("depth_limit", 20)))
+
+    @property
+    def is_truncated(self) -> bool:
+        """True when the venue returned as many levels as we asked for."""
+        return (len(self.bids) >= self.depth_limit
+                or len(self.asks) >= self.depth_limit)
+
+    def spans(self, band_pct: float) -> bool:
+        """True when both ladders reach past the band on their own."""
+        lo = self.mid * (1.0 - band_pct / 100.0)
+        hi = self.mid * (1.0 + band_pct / 100.0)
+        return self.bids[-1].price <= lo and self.asks[-1].price >= hi
 
     @property
     def best_bid(self) -> float:
@@ -79,8 +97,17 @@ def half_spread_bps(book: Book) -> float | None:
 
 
 def depth_within(book: Book, band_pct: float = 1.0) -> float | None:
-    """Resting notional within +/- band_pct of mid, both sides summed."""
+    """Resting notional within +/- band_pct of mid, both sides summed.
+
+    Returns None when the ladder stops inside the band because the request was
+    truncated: that figure would be a lower bound on the real depth, and a
+    lower bound silently used as a measurement is how a liquidity ratio ends up
+    understated by 4.8x (Law 3). A book that simply ends before the band, with
+    every level the venue holds, is measured normally.
+    """
     if book.is_crossed:
+        return None
+    if book.is_truncated and not book.spans(band_pct):
         return None
     mid = book.mid
     lo = mid * (1.0 - band_pct / 100.0)

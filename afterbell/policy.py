@@ -1,0 +1,142 @@
+"""Policy loading.
+
+Law 6: the guard cannot be talked out of it. Limits live in this file on disk,
+loaded once at startup and checksummed. There is deliberately no setter, no
+tool and no natural-language path that changes a threshold at runtime; the only
+way to change one is to edit the file and restart. The SHA-256 travels into
+every receipt so a reader can tell which rules produced a given decision.
+"""
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+DEFAULT_PATH = Path(__file__).resolve().parent.parent / "config" / "policy.yaml"
+
+
+class PolicyError(RuntimeError):
+    """Raised loudly. A guard running on unreadable policy is not a guard."""
+
+
+@dataclass(frozen=True)
+class Policy:
+    raw: dict[str, Any]
+    sha256: str
+    path: Path
+
+    # --- accessors; every threshold is read through one of these ---
+
+    @property
+    def status(self) -> str:
+        return str(self.raw["status"])
+
+    @property
+    def is_calibrated(self) -> bool:
+        return self.status == "CALIBRATED"
+
+    @property
+    def base_notional(self) -> float:
+        return float(self.raw["base_notional_usdt"])
+
+    @property
+    def min_rth_samples(self) -> int:
+        return int(self.raw["calibration"]["min_rth_samples"])
+
+    @property
+    def walk_cost_cap_bps(self) -> float:
+        return float(self.raw["liquidity"]["walk_cost_cap_bps"])
+
+    @property
+    def depth_band_pct(self) -> float:
+        return float(self.raw["liquidity"]["depth_band_pct"])
+
+    @property
+    def liquidity_tiers(self) -> list[dict[str, float]]:
+        return list(self.raw["liquidity"]["tiers"])
+
+    @property
+    def liquidity_otherwise(self) -> float:
+        return float(self.raw["liquidity"]["otherwise_factor"])
+
+    @property
+    def clock_factors(self) -> dict[str, float]:
+        return {k: float(v) for k, v in self.raw["clock"]["factors"].items()}
+
+    @property
+    def ramp_start_minutes(self) -> float:
+        return float(self.raw["clock"]["ramp_start_minutes_to_close"])
+
+    @property
+    def basis_bands(self) -> dict[str, dict[str, Any]]:
+        return dict(self.raw["basis"]["bands"])
+
+    @property
+    def degraded_floor_reference_age_s(self) -> float:
+        return float(self.raw["basis"]["degraded_floor_reference_age_s"])
+
+    @property
+    def max_reference_age_s(self) -> float:
+        return float(self.raw["basis"]["max_reference_age_s"])
+
+    @property
+    def block_statuses(self) -> set[str]:
+        return set(self.raw["corporate_actions"]["block_statuses"])
+
+    @property
+    def corp_action_lookahead_h(self) -> float:
+        return float(self.raw["corporate_actions"]["lookahead_hours"])
+
+    @property
+    def registry_sha256(self) -> str:
+        return str(self.raw["registry_sha256"])
+
+
+_REQUIRED = ("version", "status", "base_notional_usdt", "calibration", "clock",
+             "liquidity", "basis", "corporate_actions", "registry_sha256",
+             "verdicts")
+
+
+def load(path: str | Path | None = None) -> Policy:
+    """Load, validate and checksum the policy. Every failure raises."""
+    p = Path(path) if path else DEFAULT_PATH
+    if not p.exists():
+        raise PolicyError(f"policy file not found: {p}")
+    data = p.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    try:
+        raw = yaml.safe_load(data.decode())
+    except yaml.YAMLError as exc:
+        raise PolicyError(f"policy is not valid YAML: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise PolicyError("policy must be a mapping")
+
+    missing = [k for k in _REQUIRED if k not in raw]
+    if missing:
+        raise PolicyError(f"policy missing required keys: {missing}")
+
+    pol = Policy(raw, digest, p)
+
+    # A registry the policy does not recognise is a hard failure: it means the
+    # canonical contract set changed without the policy being reviewed (P6).
+    from afterbell.instruments import registry_sha256
+    if pol.registry_sha256 != registry_sha256():
+        raise PolicyError(
+            "canonical registry checksum does not match the policy. Expected "
+            f"{pol.registry_sha256}, computed {registry_sha256()}. Refusing to "
+            "run: the instrument set changed without policy review.")
+
+    # Law 7: the declared action space must stay risk-reducing.
+    verdicts = set(raw["verdicts"])
+    if verdicts != {"PASS", "WARN", "REDUCE", "BLOCK"}:
+        raise PolicyError(f"verdict set must be exactly PASS/WARN/REDUCE/BLOCK, got {verdicts}")
+
+    for name, factor in pol.clock_factors.items():
+        if not 0.0 <= factor <= 1.0:
+            raise PolicyError(
+                f"clock factor {name}={factor} outside [0,1]; a factor above 1 "
+                "would increase exposure, which the guard may never do (Law 7)")
+    return pol
