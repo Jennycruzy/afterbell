@@ -98,6 +98,20 @@ def test_reopening_resumes_the_existing_chain(tmp_path):
     assert list(second)[2]["prev_hash"] == head
 
 
+def test_stale_ledger_instances_serialize_appends(tmp_path):
+    """The recorder-style service and an interactive request share one ledger."""
+    p = tmp_path / "l.jsonl"
+    first = Ledger(p)
+    second = Ledger(p)  # Both were opened at genesis.
+
+    one = first.append({"decision": "BLOCK"})
+    two = second.append({"decision": "WARN"})
+
+    assert (one["seq"], two["seq"]) == (1, 2)
+    assert two["prev_hash"] == one["hash"]
+    assert verify(p) == []
+
+
 def test_empty_ledger_starts_at_genesis(tmp_path):
     led = Ledger(tmp_path / "l.jsonl")
     assert led.head == GENESIS and led.seq == 0

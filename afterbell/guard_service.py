@@ -1,9 +1,9 @@
 """Continuous read-only guard evaluator for the VPS.
 
 This service evaluates a small advisory request every minute and writes the
-latest deterministic state for the dashboard. It never calls the executor and
-never receives an OAuth token. User/agent requests still go through
-``afterbell.engine.Guard.evaluate`` when a receipt is required.
+latest deterministic state for the dashboard. Every evaluation is written to
+the hash-chained receipt ledger. It never calls the executor and never receives
+an OAuth token.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from afterbell.engine import Guard
-from afterbell.guard import OrderRequest, evaluate as guard_evaluate, to_receipt
+from afterbell.guard import OrderRequest, to_receipt
 from afterbell.measure import Side
 from afterbell.policy import load as load_policy
 
@@ -52,10 +52,14 @@ def _gap(reason: str) -> None:
         os.fsync(fh.fileno())
 
 
-def _state_from(req: OrderRequest, decision) -> dict:
+def _state_from(req: OrderRequest, decision, *, receipt_seq: int,
+                receipt_hash: str) -> dict:
     receipt = to_receipt(decision, req)
     return {
         "ts": _iso(),
+        "receipt_seq": receipt_seq,
+        "receipt_hash": receipt_hash,
+        "evaluation_source": req.evaluation_source,
         "status": decision.verdict.value,
         "allowed_notional": decision.allowed_notional,
         "requested_notional": decision.requested_notional,
@@ -78,19 +82,33 @@ def _state_from(req: OrderRequest, decision) -> dict:
     }
 
 
+def evaluate_once(guard: Guard, req: OrderRequest):
+    """Evaluate, receipt, and publish one monitor cycle atomically by order.
+
+    ``Guard.evaluate`` is the one receipt-writing surface. Keeping this
+    service on it means a displayed refusal or pass always has a linked,
+    hash-chained receipt; failures before that point become explicit gaps.
+    """
+    ctx = guard.build_context(req)
+    decision = guard.evaluate(req, ctx)
+    _write_json(STATE, _state_from(req, decision,
+                                   receipt_seq=guard.ledger.seq,
+                                   receipt_hash=guard.ledger.head))
+    HEARTBEAT.parent.mkdir(parents=True, exist_ok=True)
+    HEARTBEAT.write_text(_iso() + "\n")
+    return decision
+
+
 def run(interval: float = 60.0, symbol: str = "NVDABUSDT") -> None:
     policy = load_policy()
     guard = Guard(policy)
     req = OrderRequest(symbol.upper(), Side.BUY, policy.base_notional,
-                       query="buy Nvidia")
+                       query="read-only monitor: buy Nvidia",
+                       evaluation_source="continuous_read_only_monitor")
     while RUNNING:
         started = time.monotonic()
         try:
-            ctx = guard.build_context(req)
-            decision = guard_evaluate(req, ctx, policy)
-            _write_json(STATE, _state_from(req, decision))
-            HEARTBEAT.parent.mkdir(parents=True, exist_ok=True)
-            HEARTBEAT.write_text(_iso() + "\n")
+            decision = evaluate_once(guard, req)
             print(f"[{_iso()}] guard {decision.verdict.value} "
                   f"allowed={decision.allowed_notional}", flush=True)
         except Exception as exc:

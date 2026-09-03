@@ -51,6 +51,9 @@ class OrderRequest:
     query: str = ""
     observed_contract: str | None = None
     audit_verdict: str | None = None
+    # Receipts distinguish an actual requested action from the periodic,
+    # read-only evaluation that powers the public guard-status panel.
+    evaluation_source: str = "external_request"
 
     def at(self, notional: float) -> "OrderRequest":
         """The same request, resized to what the guard permitted.
@@ -529,6 +532,7 @@ def to_receipt(d: Decision, req: OrderRequest) -> dict[str, Any]:
         m |= g.measurements
     return {
         "symbol": req.symbol,
+        "evaluation_source": req.evaluation_source,
         "market_state": ctx.clock.state.value,
         "reference_age_s": ctx.reference_age_s,
         "reference_age": (None if ctx.reference_age_s is None

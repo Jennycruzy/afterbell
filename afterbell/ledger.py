@@ -17,6 +17,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import fcntl
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,7 +58,28 @@ class Ledger:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._seq, self._head = self._resume()
+        self.lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+        # Opening instances concurrently must not make them disagree about
+        # the starting head. append() refreshes again under the same lock.
+        with self._exclusive_lock():
+            self._seq, self._head = self._resume()
+
+    @contextmanager
+    def _exclusive_lock(self) -> Iterator[None]:
+        """Serialize ledger writers, including separate service processes.
+
+        The guard service and an interactive executor can both leave receipts.
+        A process-local sequence counter would let them append different
+        records at the same position, destroying the evidence chain. flock is
+        deliberately attached to a sibling lock file so it remains effective
+        while the JSONL itself is opened, flushed and fsynced per record.
+        """
+        with self.lock_path.open("a+", encoding="utf-8") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     def _resume(self) -> tuple[int, str]:
         """Pick up from the existing chain, or start a new one."""
@@ -94,21 +117,27 @@ class Ledger:
         supplied values for them are overwritten, so a caller cannot forge a
         position in the chain.
         """
-        rec = dict(record)
-        rec["seq"] = self._seq + 1
-        rec.setdefault("ts", datetime.now(timezone.utc)
-                       .strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z")
-        rec["prev_hash"] = self._head
-        rec[_HASH_FIELD] = compute_hash(self._head, rec)
+        with self._exclusive_lock():
+            # Another long-lived process may have appended after this Ledger
+            # object was constructed. Refresh *inside* the exclusive lock;
+            # correctness is more important than avoiding this small scan in
+            # a six-day evidence ledger.
+            self._seq, self._head = self._resume()
+            rec = dict(record)
+            rec["seq"] = self._seq + 1
+            rec.setdefault("ts", datetime.now(timezone.utc)
+                           .strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z")
+            rec["prev_hash"] = self._head
+            rec[_HASH_FIELD] = compute_hash(self._head, rec)
 
-        with self.path.open("a", encoding="utf-8") as fh:
-            fh.write(canonical_json(rec) + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
+            with self.path.open("a", encoding="utf-8") as fh:
+                fh.write(canonical_json(rec) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
 
-        self._seq = rec["seq"]
-        self._head = rec[_HASH_FIELD]
-        return rec
+            self._seq = rec["seq"]
+            self._head = rec[_HASH_FIELD]
+            return rec
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
         if not self.path.exists():
