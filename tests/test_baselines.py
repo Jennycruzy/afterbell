@@ -1,5 +1,7 @@
 """Baseline tests. The refusals matter more than the medians here: a ratio
 computed against four samples is worse than no ratio at all."""
+from datetime import datetime, timezone
+
 import pytest
 
 from afterbell.baselines import Baseline, build
@@ -66,3 +68,13 @@ def test_zero_median_never_becomes_a_divisor():
                  median_depth_1pct=0.0, min_samples=300)
     assert b.status == "UNCALIBRATED"
     assert b.spread_ratio(1.0) is None
+
+
+def test_rolling_window_excludes_old_rth_samples():
+    old = [rec("NVDABUSDT", "2026-09-01T15:00:00.000Z", 99.0, 101.0)
+           for _ in range(20)]
+    recent = [rec("NVDABUSDT", "2026-09-09T15:00:00.000Z", 99.0, 101.0)
+              for _ in range(5)]
+    b = build(old + recent, min_samples=1, window_days=7,
+              now=datetime(2026, 9, 10, 12, tzinfo=timezone.utc))["NVDABUSDT"]
+    assert b.n_rth == 5

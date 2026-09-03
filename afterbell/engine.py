@@ -87,9 +87,25 @@ class Guard:
 
     def baselines(self, refresh: bool = False) -> dict[str, bl.Baseline]:
         if self._baselines is None or refresh:
-            self._baselines = bl.build(min_samples=self._min_samples,
-                                       band_pct=self.policy.depth_band_pct)
+            self._baselines = bl.build(
+                min_samples=self._min_samples,
+                band_pct=self.policy.depth_band_pct,
+                window_days=self.policy.baseline_window_days)
         return self._baselines
+
+    def baseline_for(self, symbol: str) -> bl.Baseline | None:
+        """Return a baseline, refreshing while this symbol is uncalibrated.
+
+        The guard service is long-lived while the recorder is still collecting
+        its minimum RTH sample set. A one-time cache would preserve an obsolete
+        BLOCK forever, so an affected symbol is rebuilt until its measured
+        denominator becomes usable. Once calibrated, the explicit cache keeps
+        the full-depth history from being reparsed every minute.
+        """
+        baseline = self.baselines().get(symbol)
+        if baseline is None or not baseline.is_calibrated:
+            baseline = self.baselines(refresh=True).get(symbol)
+        return baseline
 
     def fetch_book(self, symbol: str) -> Book | None:
         """Live order book. None when it cannot be read (Law 3)."""
@@ -323,7 +339,7 @@ class Guard:
         ctx = MarketContext(
             clock=clock_at(at),
             book=book,
-            baseline=self.baselines().get(symbol),
+            baseline=self.baseline_for(symbol),
             reference_price=ref.price if ref else None,
             reference_ts=ref.ts if ref else None,
             exchange_status=status,

@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import glob
 import json
+import math
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -94,15 +95,46 @@ def to_sample(rec: dict, band_pct: float = 1.0) -> Sample | None:
     return Sample(rec["symbol"], book.ts, evaluate(book.ts).state, hs, dp)
 
 
+def _cutoff(window_days: float | None, now: datetime | None) -> datetime | None:
+    if window_days is None:
+        return None
+    days = float(window_days)
+    if not math.isfinite(days) or days <= 0:
+        raise ValueError("baseline window_days must be a finite positive number")
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        raise ValueError("baseline reference time must be timezone-aware")
+    return current.astimezone(timezone.utc) - timedelta(days=days)
+
+
+def _record_ts(rec: dict) -> datetime | None:
+    try:
+        value = rec["ts"]
+        if not isinstance(value, str):
+            return None
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return None
+        return parsed.astimezone(timezone.utc)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
 def build(records: Iterable[dict] | None = None, *, min_samples: int = 300,
-          band_pct: float = 1.0) -> dict[str, Baseline]:
+          band_pct: float = 1.0, window_days: float | None = None,
+          now: datetime | None = None) -> dict[str, Baseline]:
     """Build per-symbol baselines from recorded books."""
     recs = records if records is not None else iter_records()
+    cutoff = _cutoff(window_days, now)
     rth_spread: dict[str, list[float]] = defaultdict(list)
     rth_depth: dict[str, list[float]] = defaultdict(list)
     by_state: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     for rec in recs:
+        if cutoff is not None:
+            ts = _record_ts(rec)
+            if ts is None or ts < cutoff:
+                continue
         s = to_sample(rec, band_pct)
         if s is None:
             continue
@@ -126,7 +158,9 @@ def build(records: Iterable[dict] | None = None, *, min_samples: int = 300,
 
 
 def state_distribution(records: Iterable[dict] | None = None,
-                       band_pct: float = 1.0) -> dict[str, dict[str, dict]]:
+                       band_pct: float = 1.0,
+                       window_days: float | None = None,
+                       now: datetime | None = None) -> dict[str, dict[str, dict]]:
     """Median spread and depth per (symbol, market state).
 
     This is what turns the P2 tiers and P3 bands from round numbers into
@@ -134,7 +168,12 @@ def state_distribution(records: Iterable[dict] | None = None,
     """
     acc: dict[tuple[str, str], list[Sample]] = defaultdict(list)
     recs = records if records is not None else iter_records()
+    cutoff = _cutoff(window_days, now)
     for rec in recs:
+        if cutoff is not None:
+            ts = _record_ts(rec)
+            if ts is None or ts < cutoff:
+                continue
         s = to_sample(rec, band_pct)
         if s is not None:
             acc[(s.symbol, s.state.value)].append(s)

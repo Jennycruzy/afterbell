@@ -9,6 +9,7 @@ every receipt so a reader can tell which rules produced a given decision.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,10 @@ class Policy:
     @property
     def min_rth_samples(self) -> int:
         return int(self.raw["calibration"]["min_rth_samples"])
+
+    @property
+    def baseline_window_days(self) -> float:
+        return float(self.raw["calibration"]["baseline_window_days"])
 
     @property
     def walk_cost_cap_bps(self) -> float:
@@ -173,6 +178,14 @@ def load(path: str | Path | None = None) -> Policy:
     missing = [s.value for s in MarketState if s.value not in pol.clock_factors]
     if missing:
         raise PolicyError(f"policy has no clock factor for states: {missing}")
+
+    try:
+        window_days = pol.baseline_window_days
+    except (TypeError, ValueError) as exc:
+        raise PolicyError("calibration baseline_window_days must be numeric") from exc
+    if not math.isfinite(window_days) or window_days <= 0:
+        raise PolicyError(
+            "calibration baseline_window_days must be a finite positive number")
 
     # The executor's ceiling must be a ceiling. A cap at or above the base
     # notional caps nothing, and a cap that is absent while execution is
