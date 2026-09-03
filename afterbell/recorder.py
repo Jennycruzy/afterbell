@@ -13,7 +13,8 @@ wire from a live public endpoint.
 
 Writes, per UTC day, under data/raw/YYYY-MM-DD/:
     token.jsonl      one record per symbol per cycle: book, depth, trades
-    reference.jsonl  one record per cycle: Alpaca snapshots + session clock
+    reference.jsonl  one record per cycle: provider snapshots + derived
+                      regular-session references
     gaps.jsonl       one record per failure, with reason and endpoint
 """
 from __future__ import annotations
@@ -28,7 +29,9 @@ from pathlib import Path
 import httpx
 
 from afterbell.instruments import TOKEN_SYMBOLS, UNDERLYINGS, registry_sha256
-from afterbell.reference import ReferenceUnavailable, from_yahoo
+from afterbell.reference import (
+    ReferenceUnavailable, from_snapshot, from_yahoo,
+)
 
 BINANCE = "https://api.binance.com"
 ALPACA_DATA = "https://data.alpaca.markets"
@@ -239,13 +242,18 @@ class Recorder:
                 continue
             metas[sym] = meta
             try:
-                ref = from_yahoo(sym, meta, dt)
+                # `dt` is the cycle start. Yahoo can publish a new regular
+                # print while the five-symbol request is in flight, so validate
+                # against the wall clock at this response rather than calling
+                # a perfectly current print "future" by a few seconds.
+                captured_at = datetime.now(timezone.utc)
+                ref = from_yahoo(sym, meta, captured_at)
             except ReferenceUnavailable as exc:
                 _gap(dt, self.cycle, "yahoo", sym, str(exc))
                 continue
             derived[sym] = {"price": ref.price, "ts": _iso(ref.ts),
                             "source": ref.source, "provider": ref.provider,
-                            "age_s": (dt - ref.ts).total_seconds()}
+                            "age_s": (captured_at - ref.ts).total_seconds()}
         if not metas:
             return False
         _append(dt, "reference", {
@@ -264,10 +272,37 @@ class Recorder:
         clock = self._get_alpaca(ALPACA_TRADE, "/v2/clock", {}, dt)
         if snap is None and clock is None:
             return False
+        derived = {}
+        if isinstance(snap, dict):
+            for sym in UNDERLYINGS:
+                item = snap.get(sym)
+                if not isinstance(item, dict):
+                    _gap(dt, self.cycle, "alpaca", "/v2/stocks/snapshots",
+                         f"no snapshot for {sym}", sym)
+                    continue
+                try:
+                    # The response arrives after the cycle starts; a current
+                    # latest trade must not be rejected as future by seconds.
+                    captured_at = datetime.now(timezone.utc)
+                    ref = from_snapshot(sym, item, captured_at)
+                except ReferenceUnavailable as exc:
+                    _gap(dt, self.cycle, "alpaca", "/v2/stocks/snapshots",
+                         str(exc), sym)
+                    continue
+                derived[sym] = {"price": ref.price, "ts": _iso(ref.ts),
+                                "source": ref.source,
+                                "provider": ref.provider,
+                                "age_s": (captured_at - ref.ts).total_seconds()}
+        elif snap is not None:
+            _gap(dt, self.cycle, "alpaca", "/v2/stocks/snapshots",
+                 "snapshot response was not an object")
         _append(dt, "reference", {
             "kind": "reference", "ts": _iso(dt), "cycle": self.cycle,
-            "snapshots": snap, "clock": clock,
-            "snapshots_ok": snap is not None, "clock_ok": clock is not None,
+            "provider": "alpaca", "snapshots": snap, "clock": clock,
+            "derived": derived,
+            "snapshots_ok": snap is not None, "derived_ok":
+                len(derived) == len(UNDERLYINGS),
+            "clock_ok": clock is not None,
         })
         return True
 

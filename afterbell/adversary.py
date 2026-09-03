@@ -423,8 +423,9 @@ def demo_context_factory(when, policy: Policy, reference_ts=None):
                         min_samples=300)
 
     def context_for(req: OrderRequest) -> MarketContext:
-        contract = (verify_contract("NVDABUSDT", req.observed_contract,
-                                    req.audit_verdict)
+        contract = (verify_contract(
+            "NVDABUSDT", req.observed_contract, req.audit_verdict,
+            audit_status="UNSUPPORTED", audit_supported=False)
                     if req.observed_contract is not None else None)
         return MarketContext(
             clock=clock_at(when), book=book, baseline=baseline,

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "afterbell"
+version = "0.1.0"
+description = "A deterministic, calendar-aware risk boundary for tokenized equities"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.28",
+  "pandas>=2.2",
+  "numpy>=1.26",
+  "pydantic>=2.7",
+  "pyyaml>=6.0",
+  "alpaca-py>=0.30",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+include = ["afterbell*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+  "integration: read-only calls to live public market-data endpoints",
+]

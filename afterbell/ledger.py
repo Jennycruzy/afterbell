@@ -69,6 +69,12 @@ class Ledger:
                     last = line
         if last is None:
             return 0, GENESIS
+        errors = verify(self.path)
+        if errors:
+            first = errors[0]
+            raise RuntimeError(
+                f"receipt ledger verification failed at line {first.line_no}: "
+                f"{first.reason}")
         rec = json.loads(last)
         return int(rec["seq"]), str(rec[_HASH_FIELD])
 

@@ -24,6 +24,9 @@ import httpx
 
 from afterbell import baselines as bl
 from afterbell.clock import evaluate as clock_at
+from afterbell.corporate_actions import (
+    AlpacaCorporateActions, CorporateActionUnavailable,
+)
 from afterbell.guard import (
     Decision, MarketContext, OrderRequest, evaluate as guard_evaluate,
     to_receipt,
@@ -32,6 +35,7 @@ from afterbell.instruments import REGISTRY
 from afterbell.ledger import Ledger
 from afterbell.measure import Book, Side
 from afterbell.policy import Policy, load as load_policy
+from afterbell.public_checks import PublicCheckUnavailable, PublicChecks
 from afterbell.reference import (
     YAHOO_CHART, ReferenceUnavailable, from_snapshot, from_yahoo,
 )
@@ -41,7 +45,21 @@ BINANCE = "https://api.binance.com"
 ALPACA_DATA = "https://data.alpaca.markets"
 ROOT = Path(__file__).resolve().parent.parent
 LEDGER_PATH = ROOT / "data" / "receipts.jsonl"
+GAP_PATH = ROOT / "data" / "guard_gaps.jsonl"
 DEPTH_LEVELS = 5000
+
+
+def _gap(endpoint: str, symbol: str | None, reason: str) -> None:
+    """Persist a failed live input without writing a fabricated measurement."""
+    GAP_PATH.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "kind": "gap", "ts": datetime.now(timezone.utc).isoformat(),
+        "source": "guard", "endpoint": endpoint, "symbol": symbol,
+        "reason": reason[:500],
+    }
+    with GAP_PATH.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, sort_keys=True) + "\n")
+        fh.flush()
 
 
 class Guard:
@@ -54,6 +72,8 @@ class Guard:
         self._client = httpx.Client(
             timeout=httpx.Timeout(15.0, connect=10.0),
             headers={"User-Agent": "afterbell-guard/0.1"})
+        self._public_checks = PublicChecks(self._client)
+        self._corporate_actions: AlpacaCorporateActions | None = None
         self._min_samples = (baseline_min_samples
                              if baseline_min_samples is not None
                              else policy.min_rth_samples)
@@ -73,29 +93,138 @@ class Guard:
 
     def fetch_book(self, symbol: str) -> Book | None:
         """Live order book. None when it cannot be read (Law 3)."""
+        endpoint = "/api/v3/depth"
         try:
-            r = self._client.get(f"{BINANCE}/api/v3/depth",
+            r = self._client.get(f"{BINANCE}{endpoint}",
                                  params={"symbol": symbol,
                                          "limit": DEPTH_LEVELS})
             r.raise_for_status()
             d = r.json()
-        except Exception:
+            if not isinstance(d, dict) or not d.get("bids") or not d.get("asks"):
+                raise ValueError("empty order book response")
+            book = Book.from_record({
+                "symbol": symbol,
+                "ts": datetime.now(timezone.utc)
+                      .strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+                "bids": d["bids"], "asks": d["asks"],
+                "depth_limit": DEPTH_LEVELS})
+            if book is None:
+                raise ValueError("order book parser returned no book")
+            return book
+        except Exception as exc:
+            _gap(endpoint, symbol, f"{type(exc).__name__}: {exc}")
             return None
-        return Book.from_record({
-            "symbol": symbol,
-            "ts": datetime.now(timezone.utc)
-                  .strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
-            "bids": d.get("bids", []), "asks": d.get("asks", []),
-            "depth_limit": DEPTH_LEVELS})
 
     def fetch_status(self, symbol: str) -> str | None:
+        endpoint = "/api/v3/exchangeInfo"
         try:
-            r = self._client.get(f"{BINANCE}/api/v3/exchangeInfo",
+            r = self._client.get(f"{BINANCE}{endpoint}",
                                  params={"symbol": symbol})
             r.raise_for_status()
-            return r.json()["symbols"][0]["status"]
-        except Exception:
+            data = r.json()
+            symbols = data.get("symbols") if isinstance(data, dict) else None
+            if not isinstance(symbols, list) or len(symbols) != 1:
+                raise ValueError("exchangeInfo did not return exactly one symbol")
+            status = symbols[0].get("status")
+            if not isinstance(status, str) or not status:
+                raise ValueError("exchangeInfo symbol has no status")
+            return status
+        except Exception as exc:
+            _gap(endpoint, symbol, f"{type(exc).__name__}: {exc}")
             return None
+
+    def fetch_corporate_state(
+            self, inst, exchange_status: str | None = None
+            ) -> tuple[str | None, bool, bool, str | None, str]:
+        """Read current bStocks status and, when configured, future actions.
+
+        Yahoo remains the reference-price provider. Alpaca is used only for
+        this P4 lookahead because the reference-side corporate-action source
+        is a different data question from the reference price. If Alpaca is
+        not configured, the current Binance status is still exposed as the
+        verified partial fallback rather than mislabeled as a full lookahead.
+        """
+        status = None
+        status_error = None
+        try:
+            status = self._public_checks.rwa_status(inst)
+        except PublicCheckUnavailable as exc:
+            status_error = str(exc)
+            _gap("binance-tokenized-securities-info/status", inst.token_symbol,
+                 status_error)
+
+        source = "binance-bstocks-status"
+        if status is None:
+            allowed = ((exchange_status or "").upper()
+                       in self.policy.tradable_statuses)
+            if not allowed:
+                note = ("neither the bStocks status endpoint nor a tradable "
+                        f"exchangeInfo status was verified: {status_error}")
+                return None, False, False, None, note
+            source = "exchangeInfo-fallback"
+            note = ("bStocks status endpoint unavailable; current pair status "
+                    f"verified by exchangeInfo ({exchange_status})")
+            current_action = None
+        else:
+            reason_code = status.reason_code.upper()
+            message = status.reason_message
+            action_terms = {
+                "cash_dividend", "stock_dividend", "stock_split", "merger",
+                "acquisition", "spinoff", "earnings",
+            }
+            combined = " ".join(x for x in (reason_code, message or "") if x)
+            if not status.open_state or reason_code != "TRADING":
+                current_action = message if message else reason_code
+            elif any(term in combined.lower() for term in action_terms):
+                current_action = message if message else reason_code
+            else:
+                current_action = None
+            note = (f"bStocks status endpoint: openState={status.open_state}, "
+                    f"reasonCode={status.reason_code}; current status verified")
+
+        # A current halt/pause is already a hard P4 result. It does not need a
+        # second source before the guard refuses the order.
+        if current_action:
+            return current_action, True, True, source, note
+
+        key = os.environ.get("ALPACA_API_KEY", "").strip()
+        sec = os.environ.get("ALPACA_SECRET_KEY", "").strip()
+        if key and sec:
+            try:
+                if self._corporate_actions is None:
+                    self._corporate_actions = AlpacaCorporateActions(key, sec)
+                events = self._corporate_actions.upcoming(
+                    inst.underlying, datetime.now(timezone.utc),
+                    self.policy.corp_action_lookahead_h)
+            except CorporateActionUnavailable as exc:
+                detail = f"Alpaca corporate-action lookahead failed: {exc}"
+                _gap("alpaca-corporate-actions", inst.underlying, detail)
+                return (None, True, False, source, f"{note}; {detail}")
+            if events:
+                event = events[0]
+                return (event.label, True, True,
+                        f"{source}+alpaca-corporate-actions",
+                        f"{note}; Alpaca found {event.label}")
+            return (None, True, True,
+                    f"{source}+alpaca-corporate-actions",
+                    f"{note}; Alpaca found no action within "
+                    f"{self.policy.corp_action_lookahead_h:.0f}h")
+
+        return (None, True, False, source,
+                f"{note}; Alpaca corporate-action lookahead is not configured; "
+                "P4 is a current-status fallback")
+
+    def fetch_token_audit(self, contract: str) -> tuple[str, bool, bool | None, str]:
+        """P6 source 2; unsupported bStocks is a valid registry-only result."""
+        try:
+            audit = self._public_checks.token_audit(contract)
+        except PublicCheckUnavailable as exc:
+            note = f"token audit unavailable: {exc}"
+            _gap("query-token-audit", contract, note)
+            return "UNAVAILABLE", False, None, note
+        note = (f"query-token-audit: {audit.status}; supported="
+                f"{audit.supported}; hasResult={audit.has_result}")
+        return audit.status, audit.supported, audit.safe, note
 
     def fetch_reference(self, underlying: str, at: datetime | None = None):
         """Reference price, or None with the reason recorded by the caller.
@@ -110,7 +239,9 @@ class Guard:
         key = os.environ.get("ALPACA_API_KEY", "").strip()
         sec = os.environ.get("ALPACA_SECRET_KEY", "").strip()
         if not key or not sec:
-            return None, "no Alpaca credentials configured"
+            note = "no Alpaca credentials configured"
+            _gap("/v2/stocks/snapshots", underlying, note)
+            return None, note
         try:
             r = self._client.get(
                 f"{ALPACA_DATA}/v2/stocks/snapshots",
@@ -119,12 +250,17 @@ class Guard:
             r.raise_for_status()
             snap = r.json().get(underlying)
         except Exception as exc:
-            return None, f"reference fetch failed: {type(exc).__name__}: {exc}"
+            note = f"reference fetch failed: {type(exc).__name__}: {exc}"
+            _gap("/v2/stocks/snapshots", underlying, note)
+            return None, note
         if not snap:
-            return None, f"no snapshot returned for {underlying}"
+            note = f"no snapshot returned for {underlying}"
+            _gap("/v2/stocks/snapshots", underlying, note)
+            return None, note
         try:
             return from_snapshot(underlying, snap, at), None
         except ReferenceUnavailable as exc:
+            _gap("/v2/stocks/snapshots", underlying, str(exc))
             return None, str(exc)
 
     def _fetch_yahoo(self, underlying: str, at: datetime | None = None):
@@ -134,10 +270,13 @@ class Guard:
             r.raise_for_status()
             meta = r.json()["chart"]["result"][0]["meta"]
         except Exception as exc:
-            return None, f"reference fetch failed: {type(exc).__name__}: {exc}"
+            note = f"reference fetch failed: {type(exc).__name__}: {exc}"
+            _gap(f"{YAHOO_CHART}/{underlying}", underlying, note)
+            return None, note
         try:
             return from_yahoo(underlying, meta, at), None
         except ReferenceUnavailable as exc:
+            _gap(f"{YAHOO_CHART}/{underlying}", underlying, str(exc))
             return None, str(exc)
 
     # ---------------- evaluation ----------------
@@ -153,27 +292,49 @@ class Guard:
         the rehearsal script says so on every frame. Nothing in the production
         path passes `at`.
         """
-        res = resolve(req.query or req.symbol)
-        inst = REGISTRY.get(req.symbol)
-        contract = (verify_contract(req.symbol, req.observed_contract,
-                                    req.audit_verdict)
-                    if req.observed_contract is not None else None)
+        symbol = req.symbol.upper()
+        res = resolve(req.query or symbol)
+        inst = REGISTRY.get(symbol)
+        contract = None
+        audit_note = None
+        if req.observed_contract is not None and inst is not None:
+            audit_status, audit_supported, audit_passed, audit_note = \
+                self.fetch_token_audit(req.observed_contract)
+            contract = verify_contract(
+                symbol, req.observed_contract, audit_verdict=audit_status,
+                audit_status=audit_status, audit_supported=audit_supported,
+                audit_passed=audit_passed)
 
-        book = self.fetch_book(req.symbol)
-        status = self.fetch_status(req.symbol)
-        ref, ref_note = (self.fetch_reference(inst.underlying, at)
-                         if inst else (None, "symbol not in registry"))
+        book = self.fetch_book(symbol)
+        status = self.fetch_status(symbol)
+        if inst is not None:
+            (corporate_action, corp_checked, corp_lookahead_checked,
+             corp_source, corp_note) = self.fetch_corporate_state(
+                 inst, exchange_status=status)
+            ref, ref_note = self.fetch_reference(inst.underlying, at)
+        else:
+            corporate_action, corp_checked = None, False
+            corp_lookahead_checked, corp_source = False, None
+            corp_note = "symbol not in canonical registry"
+            ref, ref_note = None, "symbol not in registry"
+        if audit_note:
+            corp_note = f"{corp_note}; {audit_note}"
 
         ctx = MarketContext(
             clock=clock_at(at),
             book=book,
-            baseline=self.baselines().get(req.symbol),
+            baseline=self.baselines().get(symbol),
             reference_price=ref.price if ref else None,
             reference_ts=ref.ts if ref else None,
             exchange_status=status,
+            corporate_action=corporate_action,
             resolution=res,
             contract=contract,
-            reference_note=ref_note)
+            reference_note=ref_note,
+            corporate_action_checked=corp_checked,
+            corporate_action_lookahead_checked=corp_lookahead_checked,
+            corporate_action_source=corp_source,
+            corporate_action_note=corp_note)
         return ctx
 
     def evaluate(self, req: OrderRequest, ctx: MarketContext | None = None
@@ -183,6 +344,7 @@ class Guard:
         decision = guard_evaluate(req, ctx, self.policy)
         receipt = to_receipt(decision, req)
         receipt["reference_note"] = ctx.reference_note
+        receipt["corporate_action_note"] = ctx.corporate_action_note
         receipt["query"] = req.query
         self.ledger.append(receipt)
         return decision
@@ -224,6 +386,9 @@ def main() -> None:
     ap.add_argument("--contract", default=None)
     ap.add_argument("--audit", default=None)
     ap.add_argument("--policy", default=None)
+    ap.add_argument("--narrate", action="store_true",
+                    help="ask the optional narration provider for qualitative "
+                         "prose; it cannot change the receipt or any number")
     a = ap.parse_args()
 
     guard = Guard.from_policy(a.policy)
@@ -232,6 +397,13 @@ def main() -> None:
                        observed_contract=a.contract, audit_verdict=a.audit)
     d = guard.evaluate(req)
     print(render(d))
+    if a.narrate:
+        from afterbell.rationale import NarrationUnavailable, Narrator
+        try:
+            print("  NARRATION  " + Narrator.from_env().narrate(d))
+        except NarrationUnavailable as exc:
+            _gap("narration", req.symbol, str(exc))
+            print(f"  NARRATION GAP  {exc}")
     print(f"  receipt seq {guard.ledger.seq}  ledger head {guard.ledger.head[:16]}...")
     print(f"  policy {d.policy_sha256[:16]}...\n")
 

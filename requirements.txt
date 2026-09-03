@@ -3,3 +3,4 @@ pandas>=2.2
 numpy>=1.26
 pydantic>=2.7
 pyyaml>=6.0
+alpaca-py>=0.30

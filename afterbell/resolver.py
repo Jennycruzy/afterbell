@@ -72,6 +72,9 @@ class ContractCheck:
     observed: str | None
     status: ContractStatus
     audit_verdict: str | None = None
+    audit_status: str | None = None
+    audit_supported: bool | None = None
+    audit_passed: bool | None = None
 
     @property
     def canonical(self) -> bool:
@@ -131,7 +134,10 @@ def resolve(query: str) -> Resolution:
 
 
 def verify_contract(token_symbol: str, observed_contract: str | None,
-                    audit_verdict: str | None = None) -> ContractCheck:
+                    audit_verdict: str | None = None, *,
+                    audit_status: str | None = None,
+                    audit_supported: bool | None = None,
+                    audit_passed: bool | None = None) -> ContractCheck:
     """Check an observed contract address against the canonical registry.
 
     Address comparison is case-insensitive: EIP-55 mixed-case checksums encode
@@ -147,12 +153,13 @@ def verify_contract(token_symbol: str, observed_contract: str | None,
         raise KeyError(f"{token_symbol} is not in the canonical registry")
     if observed_contract is None or not observed_contract.strip():
         return ContractCheck(token_symbol, inst.contract, None,
-                             ContractStatus.NOT_PROVIDED, audit_verdict)
+                             ContractStatus.NOT_PROVIDED, audit_verdict,
+                             audit_status, audit_supported, audit_passed)
     ok = observed_contract.strip().lower() == inst.contract.lower()
     return ContractCheck(
         token_symbol, inst.contract, observed_contract.strip(),
         ContractStatus.CANONICAL if ok else ContractStatus.MISMATCH,
-        audit_verdict)
+        audit_verdict, audit_status, audit_supported, audit_passed)
 
 
 def render_panel(res: Resolution, reference_state: str, reference_age: str,
@@ -199,6 +206,8 @@ def render_panel(res: Resolution, reference_state: str, reference_age: str,
         lines.append(f"  Canonical match   {mark}")
         if contract.audit_verdict:
             lines.append(f"  Token audit       {contract.audit_verdict}")
+        elif contract.audit_status:
+            lines.append(f"  Token audit       {contract.audit_status}")
     lines += [
         f"  Token market      OPEN (24/7)",
         f"  Reference market  {reference_state} - {reference_age}",

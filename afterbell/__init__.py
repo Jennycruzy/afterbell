@@ -15,9 +15,17 @@ logic untouched, so those four lines must work from this package directly:
 
 Importing this module pulls in no credential and opens no connection.
 """
-from afterbell.engine import Guard
 from afterbell.guard import Decision, OrderRequest, Verdict
 from afterbell.measure import Side
 
 __version__ = "0.1.0"
 __all__ = ["Guard", "OrderRequest", "Decision", "Verdict", "Side"]
+
+
+def __getattr__(name: str):
+    # Lazy import avoids opening the engine while `python -m afterbell.engine`
+    # is starting, and keeps package import credential-free and side-effect free.
+    if name == "Guard":
+        from afterbell.engine import Guard
+        return Guard
+    raise AttributeError(name)

@@ -86,6 +86,15 @@ class MarketContext:
     # Why the reference is missing, when it is. A blank reason on a blocked
     # receipt is uninvestigable after the fact.
     reference_note: str | None = None
+    # P4/P6 are source-gated. Direct test/rehearsal contexts may explicitly
+    # provide their own status; the live engine sets these from public checks.
+    corporate_action_checked: bool = True
+    # A current venue status is not the same thing as a future-action query.
+    # Direct contexts default to the old, fully-specified test contract; the
+    # live engine sets this false when the Alpaca lookahead is not configured.
+    corporate_action_lookahead_checked: bool = True
+    corporate_action_source: str | None = None
+    corporate_action_note: str | None = None
 
     @property
     def reference_age_s(self) -> float | None:
@@ -247,10 +256,10 @@ def gate_liquidity(ctx: MarketContext, req: OrderRequest,
     bl = ctx.baseline
     if bl is None or not bl.is_calibrated:
         n = bl.n_rth if bl else 0
-        return GateResult("P2", Verdict.REDUCE, pol.liquidity_tiers[-1]["factor"],
+        return GateResult("P2", Verdict.BLOCK, 0.0,
                           f"no calibrated RTH baseline for this symbol "
                           f"({n} samples, {pol.min_rth_samples} required); "
-                          "the most restrictive tier applies",
+                          "the affected path is blocked until it is measured",
                           {**m, "baseline_status": "UNCALIBRATED", "n_rth": n})
 
     sr = bl.spread_ratio(hs)
@@ -335,20 +344,46 @@ def gate_corporate_action(ctx: MarketContext, pol: Policy) -> GateResult:
                           f"pair status {status} is not a tradable status "
                           f"({', '.join(sorted(pol.tradable_statuses))})",
                           {"exchange_status": status})
+    if not ctx.corporate_action_checked:
+        return GateResult("P4", Verdict.BLOCK, 0.0,
+                          "corporate-action status was not verified; "
+                          "the affected path is halted rather than assumed clear",
+                          {"exchange_status": status,
+                           "corporate_action_check": "NOT_VERIFIED",
+                           "note": ctx.corporate_action_note})
     if ctx.corporate_action:
         return GateResult("P4", Verdict.BLOCK, 0.0,
                           f"corporate action within "
                           f"{pol.corp_action_lookahead_h:.0f}h: "
                           f"{ctx.corporate_action}",
-                          {"corporate_action": ctx.corporate_action})
+                          {"corporate_action": ctx.corporate_action,
+                           "corporate_action_check": "VERIFIED"})
+    measurements = {"exchange_status": status,
+                    "corporate_action_check": "VERIFIED",
+                    "corporate_action_lookahead":
+                        ("VERIFIED" if ctx.corporate_action_lookahead_checked
+                         else "PARTIAL")}
+    if not ctx.corporate_action_lookahead_checked:
+        if ctx.corporate_action_source:
+            measurements["corporate_action_source"] = ctx.corporate_action_source
+        if ctx.corporate_action_note:
+            measurements["note"] = ctx.corporate_action_note
+        return GateResult(
+            "P4", Verdict.WARN, 1.0,
+            f"pair status {status} verified; future corporate-action lookahead "
+            "is not configured, so P4 is partial and cannot claim a clean "
+            "lookahead result",
+            measurements)
+    if ctx.corporate_action_note:
+        measurements["note"] = ctx.corporate_action_note
     return GateResult("P4", Verdict.PASS, 1.0, f"pair status {status}, no "
-                      "corporate action in the lookahead window",
-                      {"exchange_status": status})
+                      "reported corporate action in the lookahead window",
+                      measurements)
 
 
 # ----------------------------- P5, P6 -----------------------------
 
-def gate_resolution(ctx: MarketContext) -> GateResult:
+def gate_resolution(ctx: MarketContext, req: OrderRequest) -> GateResult:
     r = ctx.resolution
     if r is None or not r.resolved:
         status = r.status.value if r else "NOT_ATTEMPTED"
@@ -357,6 +392,13 @@ def gate_resolution(ctx: MarketContext) -> GateResult:
                           "not act on an unresolved instrument",
                           {"resolution_status": status})
     i = r.instrument
+    if i.token_symbol != req.symbol.upper():
+        return GateResult("P5", Verdict.BLOCK, 0.0,
+                          f"resolved token {i.token_symbol} does not match "
+                          f"requested pair {req.symbol.upper()}",
+                          {"resolution_status": "SYMBOL_MISMATCH",
+                           "resolved_symbol": i.token_symbol,
+                           "requested_symbol": req.symbol.upper()})
     return GateResult("P5", Verdict.PASS, 1.0,
                       f"{i.token_asset} resolved to {i.underlying} via "
                       f"{i.issuer}", {"resolution_status": "RESOLVED",
@@ -366,24 +408,39 @@ def gate_resolution(ctx: MarketContext) -> GateResult:
 def gate_canonical(ctx: MarketContext) -> GateResult:
     c = ctx.contract
     if c is None:
-        # Spot trading on Binance does not deliver a contract address; the
-        # registry is authoritative and the pair is the canonical listing.
+        # Binance Spot requests do not carry a contract address. The checked-in
+        # registry is authoritative for the venue-internal pair; an on-chain
+        # request must supply an address and is handled by the branch below.
         return GateResult("P6", Verdict.PASS, 1.0,
                           "venue-internal spot pair; canonical registry applies",
                           {"contract_check": "NOT_APPLICABLE"})
-    if c.canonical:
+    common = {"contract_check": c.status.value, "expected": c.expected,
+              "observed": c.observed, "audit_verdict": c.audit_verdict,
+              "audit_status": c.audit_status,
+              "audit_supported": c.audit_supported,
+              "audit_passed": c.audit_passed}
+    if not c.canonical:
+        detail = f"contract {c.status.value.lower().replace('_', ' ')}"
+        if c.audit_verdict:
+            detail += (f"; token audit reported '{c.audit_verdict}' and the guard "
+                       "blocks it regardless - either check alone is insufficient")
+        return GateResult("P6", Verdict.BLOCK, 0.0, detail, common)
+    if c.audit_passed is False:
+        return GateResult("P6", Verdict.BLOCK, 0.0,
+                          "canonical contract matched, but the token audit "
+                          "reported an unsafe result", common)
+    if c.audit_supported is False:
         return GateResult("P6", Verdict.PASS, 1.0,
-                          "contract matches the canonical registry",
-                          {"contract_check": c.status.value,
-                           "observed": c.observed})
-    detail = f"contract {c.status.value.lower().replace('_', ' ')}"
-    if c.audit_verdict:
-        detail += (f"; token audit reported '{c.audit_verdict}' and the guard "
-                   "blocks it regardless - either check alone is insufficient")
-    return GateResult("P6", Verdict.BLOCK, 0.0, detail,
-                      {"contract_check": c.status.value,
-                       "expected": c.expected, "observed": c.observed,
-                       "audit_verdict": c.audit_verdict})
+                          "canonical contract matched; token audit does not "
+                          "support bStocks, so P6 is explicitly registry-only",
+                          common)
+    if c.audit_passed is not True:
+        return GateResult("P6", Verdict.BLOCK, 0.0,
+                          "canonical contract matched, but no usable token-audit "
+                          "result was returned", common)
+    return GateResult("P6", Verdict.PASS, 1.0,
+                      "contract matches the canonical registry and token audit "
+                      "returned a safe result", common)
 
 
 # ----------------------------- the sizing function -----------------------------
@@ -403,7 +460,7 @@ def evaluate(req: OrderRequest, ctx: MarketContext, pol: Policy) -> Decision:
         gate_liquidity(ctx, req, pol),
         gate_basis(ctx, pol),
         gate_corporate_action(ctx, pol),
-        gate_resolution(ctx),
+        gate_resolution(ctx, req),
         gate_canonical(ctx),
     ]
 
@@ -492,4 +549,9 @@ def to_receipt(d: Decision, req: OrderRequest) -> dict[str, Any]:
         "policy_sha256": d.policy_sha256,
         "registry_sha256": registry_sha256(),
         "rationale": d.rationale,
+        "corporate_action_note": ctx.corporate_action_note,
+        "corporate_action_source": ctx.corporate_action_source,
+        "corporate_action_lookahead":
+            ("VERIFIED" if ctx.corporate_action_lookahead_checked
+             else "PARTIAL"),
     }

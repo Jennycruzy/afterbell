@@ -107,7 +107,7 @@ def test_uncalibrated_symbol_gets_the_most_restrictive_tier():
     b = Baseline("NVDABUSDT", n_rth=12, median_half_spread_bps=1.0,
                  median_depth_1pct=1000.0, min_samples=300)
     d = evaluate(req(5000.0), ctx_at("2026-09-03T15:00:00", baseline=b), POL)
-    assert d.verdict is Verdict.REDUCE
+    assert d.verdict is Verdict.BLOCK
     g = next(g for g in d.gates if g.name == "P2")
     assert g.measurements["baseline_status"] == "UNCALIBRATED"
 
@@ -179,7 +179,8 @@ def test_counterfeit_contract_blocks_despite_a_clean_audit():
 
 
 def test_canonical_contract_passes():
-    c = verify_contract("NVDABUSDT", NVDA_CONTRACT)
+    c = verify_contract("NVDABUSDT", NVDA_CONTRACT,
+                        audit_status="UNSUPPORTED", audit_supported=False)
     d = evaluate(req(1000.0), ctx_at("2026-09-03T15:00:00", contract=c), POL)
     assert d.verdict is Verdict.PASS
 
