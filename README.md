@@ -243,6 +243,31 @@ published here. A symbol with fewer than 300 RTH samples is reported
 |---|---|---|---|---|
 | _pending_ | | | | UNCALIBRATED |
 
+## Connecting to Binance Agent OS
+
+The Agentic sub-account is not created by hand. It is provisioned by completing
+an OAuth 2.1 authorization-code + PKCE flow:
+
+```
+python scripts/connect_binance.py          # or --manual on a headless box
+```
+
+Run it on the machine whose browser you log in with; the redirect lands on
+`127.0.0.1:8765`. The token is written to `.env` (gitignored, `chmod 600`) and
+never appears in a log, a receipt or a frame of the demo.
+
+_Measured correction to the design spec:_ the spec states that Agent OS market
+data requires no auth. That holds for `api.binance.com`, the public REST API
+this project's recorder and measurement path use, but **not** for
+`agent.binance.com`, the Agent OS MCP gateway, which returns `401` on
+`initialize` with a `WWW-Authenticate: Bearer` challenge. Every Agent OS
+interaction needs OAuth, reads included. Nothing in the recorder or the guard
+depends on it, which is the point of keeping them on the unauthenticated path.
+
+There is no dynamic client registration endpoint, but the authorization server
+advertises `client_id_metadata_document_supported`, so `client_id` is the URL of
+`oauth/client.json` in this repository.
+
 ## Known limitations
 
 - AFTERBELL **cannot fire Binance's Emergency Stop** — that is a manual web-UI
