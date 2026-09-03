@@ -1,0 +1,256 @@
+"""AFTERBELL market-data recorder.
+
+Law 10: this process holds no credential for Binance, needs no account, and is
+structurally incapable of dying from OAuth expiry. It is deliberately separate
+from anything that authenticates.
+
+Law 3: a failed fetch never becomes a fabricated value. Every hole in the data
+is annotated with a gap marker carrying the reason, so a gap is visible rather
+than invisible.
+
+Law 2: no synthetic data of any kind. Every field written here came off the
+wire from a live public endpoint.
+
+Writes, per UTC day, under data/raw/YYYY-MM-DD/:
+    token.jsonl      one record per symbol per cycle: book, depth, trades
+    reference.jsonl  one record per cycle: Alpaca snapshots + session clock
+    gaps.jsonl       one record per failure, with reason and endpoint
+"""
+from __future__ import annotations
+
+import json
+import os
+import signal
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+import httpx
+
+from afterbell.instruments import TOKEN_SYMBOLS, UNDERLYINGS, registry_sha256
+
+BINANCE = "https://api.binance.com"
+ALPACA_DATA = "https://data.alpaca.markets"
+ALPACA_TRADE = "https://paper-api.alpaca.markets"
+
+ROOT = Path(__file__).resolve().parent.parent
+DATA = ROOT / "data" / "raw"
+HEARTBEAT = ROOT / "data" / "heartbeat"
+
+INTERVAL_S = 60
+DEPTH_LEVELS = 20
+TRADE_LIMIT = 50
+TIMEOUT = httpx.Timeout(15.0, connect=10.0)
+
+_RESTRICTED = "restricted location"
+_running = True
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _log(msg: str) -> None:
+    print(f"[{_iso(_now())}] {msg}", file=sys.stderr, flush=True)
+
+
+def _day_dir(dt: datetime) -> Path:
+    d = DATA / dt.strftime("%Y-%m-%d")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _append(dt: datetime, name: str, record: dict) -> None:
+    path = _day_dir(dt) / f"{name}.jsonl"
+    with path.open("a") as fh:
+        fh.write(json.dumps(record, separators=(",", ":")) + "\n")
+
+
+def _gap(dt: datetime, cycle: int, source: str, endpoint: str,
+         reason: str, symbol: str | None = None) -> None:
+    """Law 3: annotate the hole. Never fill it."""
+    _append(dt, "gaps", {
+        "kind": "gap", "ts": _iso(dt), "cycle": cycle, "source": source,
+        "endpoint": endpoint, "symbol": symbol, "reason": reason[:500],
+    })
+    _log(f"GAP {source} {endpoint} {symbol or ''} :: {reason[:200]}")
+
+
+def _check_restricted(text: str) -> bool:
+    return _RESTRICTED in text.lower()
+
+
+class Recorder:
+    def __init__(self) -> None:
+        self.client = httpx.Client(
+            timeout=TIMEOUT,
+            headers={"User-Agent": "afterbell-recorder/0.1"},
+        )
+        key = os.environ.get("ALPACA_API_KEY", "").strip()
+        sec = os.environ.get("ALPACA_SECRET_KEY", "").strip()
+        self.alpaca_headers = (
+            {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": sec}
+            if key and sec else None
+        )
+        if self.alpaca_headers is None:
+            _log("ALPACA CREDENTIALS ABSENT - reference side will write gap "
+                 "markers every cycle until they are supplied. Token side is "
+                 "unaffected and records normally (Law 10).")
+        self.cycle = 0
+
+    # ---------------- Binance: no credential, ever (Law 10) ----------------
+
+    def _get_binance(self, path: str, params: dict, dt: datetime,
+                     symbol: str | None = None):
+        url = f"{BINANCE}{path}"
+        try:
+            r = self.client.get(url, params=params)
+        except Exception as exc:
+            _gap(dt, self.cycle, "binance", path, f"{type(exc).__name__}: {exc}", symbol)
+            return None
+        if _check_restricted(r.text):
+            _gap(dt, self.cycle, "binance", path,
+                 f"GEOBLOCK: {r.text[:300]}", symbol)
+            return None
+        if r.status_code != 200:
+            _gap(dt, self.cycle, "binance", path,
+                 f"HTTP {r.status_code}: {r.text[:300]}", symbol)
+            return None
+        try:
+            return r.json()
+        except Exception as exc:
+            _gap(dt, self.cycle, "binance", path, f"bad json: {exc}", symbol)
+            return None
+
+    def exchange_status(self, dt: datetime) -> dict[str, str]:
+        """P4 source 2: authoritative trading status per pair."""
+        # httpx URL-encodes params; pre-quoting here double-encodes and
+        # Binance rejects it with -1100.
+        syms = json.dumps(TOKEN_SYMBOLS, separators=(",", ":"))
+        data = self._get_binance("/api/v3/exchangeInfo", {"symbols": syms}, dt)
+        if not data or "symbols" not in data:
+            return {}
+        return {s["symbol"]: s["status"] for s in data["symbols"]}
+
+    def record_token(self, dt: datetime, statuses: dict[str, str]) -> int:
+        written = 0
+        for sym in TOKEN_SYMBOLS:
+            book = self._get_binance("/api/v3/ticker/bookTicker", {"symbol": sym}, dt, sym)
+            depth = self._get_binance(
+                "/api/v3/depth", {"symbol": sym, "limit": DEPTH_LEVELS}, dt, sym)
+            trades = self._get_binance(
+                "/api/v3/trades", {"symbol": sym, "limit": TRADE_LIMIT}, dt, sym)
+
+            # Law 3: the book and the depth are the whole point. Without them
+            # there is no measurement, so there is no record - only a gap.
+            if book is None or depth is None:
+                _gap(dt, self.cycle, "binance", "record_token",
+                     "missing book or depth; no token record written", sym)
+                continue
+            if not depth.get("bids") or not depth.get("asks"):
+                _gap(dt, self.cycle, "binance", "/api/v3/depth",
+                     "empty book side", sym)
+                continue
+
+            _append(dt, "token", {
+                "kind": "token", "ts": _iso(dt), "cycle": self.cycle,
+                "symbol": sym,
+                "status": statuses.get(sym),
+                "bid": book.get("bidPrice"), "bid_qty": book.get("bidQty"),
+                "ask": book.get("askPrice"), "ask_qty": book.get("askQty"),
+                "last_update_id": depth.get("lastUpdateId"),
+                "bids": depth["bids"], "asks": depth["asks"],
+                "trades": trades,
+                "trades_ok": trades is not None,
+            })
+            written += 1
+        return written
+
+    # ---------------- Alpaca: reference side, read-only ----------------
+
+    def _get_alpaca(self, base: str, path: str, params: dict, dt: datetime):
+        if self.alpaca_headers is None:
+            _gap(dt, self.cycle, "alpaca", path, "no credentials configured")
+            return None
+        try:
+            r = self.client.get(f"{base}{path}", params=params,
+                                headers=self.alpaca_headers)
+        except Exception as exc:
+            _gap(dt, self.cycle, "alpaca", path, f"{type(exc).__name__}: {exc}")
+            return None
+        if r.status_code != 200:
+            _gap(dt, self.cycle, "alpaca", path,
+                 f"HTTP {r.status_code}: {r.text[:300]}")
+            return None
+        try:
+            return r.json()
+        except Exception as exc:
+            _gap(dt, self.cycle, "alpaca", path, f"bad json: {exc}")
+            return None
+
+    def record_reference(self, dt: datetime) -> bool:
+        snap = self._get_alpaca(ALPACA_DATA, "/v2/stocks/snapshots",
+                                {"symbols": ",".join(UNDERLYINGS)}, dt)
+        clock = self._get_alpaca(ALPACA_TRADE, "/v2/clock", {}, dt)
+        if snap is None and clock is None:
+            return False
+        _append(dt, "reference", {
+            "kind": "reference", "ts": _iso(dt), "cycle": self.cycle,
+            "snapshots": snap, "clock": clock,
+            "snapshots_ok": snap is not None, "clock_ok": clock is not None,
+        })
+        return True
+
+    # ---------------- loop ----------------
+
+    def cycle_once(self) -> None:
+        dt = _now()
+        self.cycle += 1
+        statuses = self.exchange_status(dt)
+        if not statuses:
+            _gap(dt, self.cycle, "binance", "/api/v3/exchangeInfo",
+                 "no statuses; token records written with status=null")
+        n = self.record_token(dt, statuses)
+        ref_ok = self.record_reference(dt)
+        HEARTBEAT.parent.mkdir(parents=True, exist_ok=True)
+        HEARTBEAT.write_text(json.dumps({
+            "ts": _iso(dt), "cycle": self.cycle,
+            "token_records": n, "reference_ok": ref_ok,
+            "registry_sha256": registry_sha256(),
+        }) + "\n")
+        _log(f"cycle {self.cycle} token={n}/{len(TOKEN_SYMBOLS)} ref={'ok' if ref_ok else 'GAP'}")
+
+    def run(self) -> None:
+        _log(f"AFTERBELL recorder starting - {len(TOKEN_SYMBOLS)} symbols, "
+             f"{INTERVAL_S}s cadence, registry {registry_sha256()[:12]}")
+        while _running:
+            started = time.time()
+            try:
+                self.cycle_once()
+            except Exception as exc:  # never die silently; never die at all
+                _gap(_now(), self.cycle, "recorder", "cycle",
+                     f"UNCAUGHT {type(exc).__name__}: {exc}")
+            sleep_for = INTERVAL_S - (time.time() - started) % INTERVAL_S
+            deadline = time.time() + sleep_for
+            while _running and time.time() < deadline:
+                time.sleep(min(1.0, deadline - time.time()))
+        _log("recorder stopped")
+
+
+def _stop(signum, frame):
+    global _running
+    _running = False
+
+
+def main() -> None:
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
+    Recorder().run()
+
+
+if __name__ == "__main__":
+    main()
