@@ -13,7 +13,7 @@ import yaml
 from afterbell.baselines import Baseline
 from afterbell.clock import evaluate as clock_at
 from afterbell.executor import (
-    ExecutionRefused, execute, plan,
+    ExecutionRefused, _place_order_tool, execute, plan,
 )
 from afterbell.guard import MarketContext, OrderRequest, Verdict, evaluate
 from afterbell.measure import Book, Level, Side, depth_within, half_spread_bps
@@ -172,3 +172,28 @@ def test_the_package_root_exposes_nothing_that_can_trade():
     import afterbell
     assert "executor" not in afterbell.__all__
     assert not hasattr(afterbell, "execute")
+
+
+class ToolSchema:
+    def __init__(self, tools):
+        self.tools = tools
+
+    def tools_list(self):
+        return {"result": {"tools": self.tools}}
+
+
+def test_executor_discovers_the_single_place_order_tool():
+    client = ToolSchema([
+        {"name": "get_account_info"},
+        {"name": "binanceSpotPlaceOrder"},
+    ])
+    assert _place_order_tool(client) == "binanceSpotPlaceOrder"
+
+
+def test_executor_refuses_ambiguous_write_tool_schema():
+    client = ToolSchema([
+        {"name": "place_order"},
+        {"name": "spot_place_order"},
+    ])
+    with pytest.raises(Exception, match="ambiguous place-order"):
+        _place_order_tool(client)

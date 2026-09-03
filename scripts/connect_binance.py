@@ -32,6 +32,9 @@ from pathlib import Path
 import httpx
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from afterbell.mcp import MCPClient, MCPError
+
 ENV = ROOT / ".env"
 # The PKCE verifier and the state must survive between printing the URL and
 # pasting the redirect back, because those are two separate commands when the
@@ -60,8 +63,11 @@ class CB(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def log_message(self, *a):
-        pass
+    def log_message(self, fmt, *args):
+        # Callback access logs contain no OAuth values, but retaining them in
+        # the terminal makes a failed redirect diagnosable without logging the
+        # authorization code itself.
+        print(f"oauth callback: {fmt % args}", file=sys.stderr)
 
 
 def discover() -> dict:
@@ -91,20 +97,17 @@ def save_token(tok: dict) -> None:
     ENV.chmod(0o600)
 
 
-def mcp(token: str, method: str, params: dict | None = None) -> dict:
-    body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
-    r = httpx.post(MCP_URL, json=body, timeout=45, headers={
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream"})
-    if r.status_code != 200:
-        return {"_http": r.status_code, "_body": r.text[:400]}
-    txt = r.text
-    if txt.startswith("event:") or "\ndata: " in txt:      # SSE framing
-        for line in txt.splitlines():
-            if line.startswith("data: "):
-                return json.loads(line[6:])
-    return r.json()
+def _safe_preview(value):
+    """Preview only non-sensitive MCP response data in the terminal."""
+    sensitive = {"authorization", "access_token", "refresh_token", "token",
+                 "secret", "api_key", "account_id", "subaccount_id",
+                 "sub_account_id", "email", "uid"}
+    if isinstance(value, dict):
+        return {k: ("[REDACTED]" if k.lower() in sensitive
+                    else _safe_preview(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_safe_preview(v) for v in value]
+    return value
 
 
 def main() -> None:
@@ -167,14 +170,34 @@ def main() -> None:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
             webbrowser.open(url)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"browser launch unavailable ({type(exc).__name__}); "
+                  "open the printed URL manually", file=sys.stderr)
         print("waiting for the redirect on 127.0.0.1:8765 ...")
         while "code" not in _code and "error" not in _code:
-            pass
+            threading.Event().wait(0.1)
         srv.shutdown()
 
     _complete(meta, verifier, state)
+
+
+_WRITE_WORDS = {
+    "place", "order", "trade", "cancel", "withdraw", "transfer",
+    "send", "deposit", "execute", "swap", "buy", "sell", "convert",
+}
+
+
+def _read_only(name: str) -> bool:
+    words = set(name.lower().replace("-", "_").split("_"))
+    return not (words & _WRITE_WORDS)
+
+
+def _required_args(tool: dict) -> list[str]:
+    schema = tool.get("inputSchema")
+    if not isinstance(schema, dict):
+        return []
+    required = schema.get("required", [])
+    return [x for x in required if isinstance(x, str)] if isinstance(required, list) else []
 
 
 def _complete(meta: dict, verifier: str, state: str) -> None:
@@ -194,31 +217,63 @@ def _complete(meta: dict, verifier: str, state: str) -> None:
     print("\ntoken stored in .env (gitignored, chmod 600)\n")
 
     token = tok["access_token"]
-    print("=" * 66)
-    init = mcp(token, "initialize", {
-        "protocolVersion": "2025-06-18", "capabilities": {},
-        "clientInfo": {"name": "afterbell", "version": "0.1"}})
-    print("initialize:", json.dumps(init)[:300])
+    client = MCPClient(token, url=MCP_URL)
+    try:
+        print("=" * 66)
+        init = client.initialize()
+        print("initialize:", json.dumps(_safe_preview(init))[:300])
 
-    tools = mcp(token, "tools/list")
-    names = [t["name"] for t in tools.get("result", {}).get("tools", [])]
-    print(f"\n{len(names)} tools exposed:")
-    for n in names:
-        print("   ", n)
+        tools = client.tools_list()
+        raw_tools = tools.get("result", {}).get("tools", [])
+        tool_defs = [t for t in raw_tools
+                     if isinstance(t, dict) and isinstance(t.get("name"), str)]
+        names = [t["name"] for t in tool_defs]
+        print(f"\n{len(names)} tools exposed:")
+        for n in names:
+            print("   ", n)
 
-    print("\n" + "=" * 66)
-    print("BLOCKER 3 - does the tokenized-securities skill resolve NVDAB?")
-    cand = [n for n in names if "token" in n.lower() or "securit" in n.lower()
-            or "stock" in n.lower()]
-    print("  candidate tools:", cand or "(none exposed)")
-    for n in cand:
-        for args in ({"symbol": "NVDAB"}, {"symbol": "NVDABUSDT"},
-                     {"asset": "NVDAB"}):
-            res = mcp(token, "tools/call", {"name": n, "arguments": args})
-            body = json.dumps(res)[:300]
-            print(f"  {n}{args} -> {body}")
-    print("\nBLOCKER 1/2 - place a $5 NVDAB order from the Binance UI or an")
-    print("  execution tool above to confirm authorization and eligibility.")
+        print("\n" + "=" * 66)
+        print("BLOCKER 3 - does the tokenized-securities skill resolve NVDAB?")
+        cand = [n for n in names if _read_only(n) and
+                ("token" in n.lower() or "securit" in n.lower()
+                 or "stock" in n.lower())]
+        print("  read-only candidate tools:", cand or "(none exposed)")
+        for n in cand:
+            for args in ({"symbol": "NVDAB"}, {"symbol": "NVDABUSDT"},
+                         {"asset": "NVDAB"}):
+                try:
+                    res = client.call_tool(n, args)
+                    body = json.dumps(_safe_preview(res))[:500]
+                except MCPError as exc:
+                    body = f"MCP_ERROR: {exc}"
+                print(f"  {n}{args} -> {body}")
+
+        print("\nBLOCKER 1/2 - read-only account/product probe")
+        account_tools = [t for t in tool_defs if _read_only(t["name"]) and
+                         any(word in t["name"].lower() for word in
+                             ("account", "balance", "portfolio", "permission",
+                              "product", "position"))]
+        if not account_tools:
+            print("  no read-only account/product tool exposed")
+        for tool in account_tools:
+            name = tool["name"]
+            required = _required_args(tool)
+            if required:
+                print(f"  {name}: not called; required args {required}")
+                continue
+            try:
+                res = client.call_tool(name, {})
+                print(f"  {name} -> {json.dumps(_safe_preview(res))[:700]}")
+            except MCPError as exc:
+                print(f"  {name} -> MCP_ERROR: {exc}")
+        print("  A successful read proves OAuth/read scope only; it does not "
+              "prove bStocks eligibility. No write tool is called here.")
+    finally:
+        client.close()
+    print("\nBLOCKER 1/2 - a real $5 NVDAB order remains account-holder confirmation.")
+    print("  This connector deliberately makes no write call. Confirm it from the")
+    print("  Binance UI or invoke the separately guarded executor only with explicit")
+    print("  approval and the account holder watching.")
 
 
 if __name__ == "__main__":

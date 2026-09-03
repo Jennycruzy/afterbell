@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +38,7 @@ from typing import Any
 import httpx
 
 from afterbell.guard import Decision, OrderRequest, Verdict
+from afterbell.mcp import MCPClient, MCPError
 from afterbell.policy import Policy
 
 MCP_URL = "https://agent.binance.com/mcp/agentic"
@@ -108,19 +110,72 @@ def plan(decision: Decision, req: OrderRequest, pol: Policy) -> ExecutionPlan:
 
 
 def _mcp(token: str, method: str, params: dict | None = None) -> dict:
-    body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
-    r = httpx.post(MCP_URL, json=body, timeout=45, headers={
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream"})
-    if r.status_code != 200:
-        return {"_http": r.status_code, "_body": r.text[:400]}
-    txt = r.text
-    if txt.startswith("event:") or "\ndata: " in txt:
-        for line in txt.splitlines():
-            if line.startswith("data: "):
-                return json.loads(line[6:])
-    return r.json()
+    """Make one authenticated request with a real MCP session lifecycle."""
+    client = MCPClient(token, url=MCP_URL)
+    try:
+        if method == "initialize":
+            return client.initialize()
+        return client.request(method, params)
+    finally:
+        client.close()
+
+
+def _place_order_tool(client: MCPClient) -> str:
+    """Resolve exactly one write tool from the authenticated server schema."""
+    payload = client.tools_list()
+    tools = payload.get("result", {}).get("tools")
+    if not isinstance(tools, list):
+        raise MCPError("tools/list returned no tool list; refusing execution")
+    names = []
+    for tool in tools:
+        if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
+            continue
+        name = tool["name"]
+        normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+        words = set(normalized.lower().replace("-", "_").split("_"))
+        if "place" in words and "order" in words:
+            names.append(name)
+    if not names:
+        raise MCPError("authenticated Agent OS exposed no place-order tool")
+    exact = [n for n in names if n.lower() in
+             {"place_order", "spot_place_order", "binance_spot_place_order",
+              "binancespotplaceorder"}]
+    chosen = exact if exact else names
+    if len(chosen) != 1:
+        raise MCPError(f"ambiguous place-order tools: {sorted(chosen)}")
+    return chosen[0]
+
+
+def _mcp_place_order(token: str, arguments: dict) -> dict:
+    """Initialize, discover, and call only the server's actual order tool."""
+    client = MCPClient(token, url=MCP_URL)
+    try:
+        client.initialize()
+        tool = _place_order_tool(client)
+        return client.call_tool(tool, arguments)
+    finally:
+        client.close()
+
+
+def _redact(value: Any) -> Any:
+    """Keep account identifiers and credentials out of execution receipts."""
+    sensitive = {"authorization", "access_token", "refresh_token", "token",
+                 "secret", "api_key", "account_id", "subaccount_id",
+                 "sub_account_id", "email", "uid"}
+    if isinstance(value, dict):
+        return {key: ("[REDACTED]" if key.lower() in sensitive
+                      else _redact(item)) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    return value
+
+
+def _append_execution(path: Path, rec: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(rec, sort_keys=True) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
 
 
 def _receipt(p: ExecutionPlan, decision_hash: str | None, sent: bool,
@@ -160,17 +215,28 @@ def execute(p: ExecutionPlan, *, decision_hash: str | None = None,
         if not token:
             raise ExecutionRefused(
                 "no BINANCE_ACCESS_TOKEN; run scripts/connect_binance.py")
-        response = _mcp(token, "tools/call", {
-            "name": "place_order",
-            "arguments": {"symbol": p.symbol, "side": p.side,
-                          "type": "MARKET", "quoteOrderQty": p.notional}})
+        try:
+            response = _mcp_place_order(
+                token, {"symbol": p.symbol, "side": p.side,
+                        "type": "MARKET", "quoteOrderQty": p.notional})
+        except MCPError as exc:
+            response = {"error": str(exc)}
+            rec = _receipt(p, decision_hash, False, _redact(response))
+            _append_execution(Path(ledger_path), rec)
+            raise ExecutionRefused(f"authenticated order request failed: {exc}") from exc
+        result = response.get("result")
+        if "error" in response or (isinstance(result, dict)
+                                    and result.get("isError") is True):
+            safe = _redact(response)
+            rec = _receipt(p, decision_hash, False, safe)
+            _append_execution(Path(ledger_path), rec)
+            raise ExecutionRefused(
+                "Binance rejected the guarded order; no successful execution "
+                f"receipt was claimed: {json.dumps(safe)[:400]}")
         sent = True
 
-    rec = _receipt(p, decision_hash, sent, response)
-    path = Path(ledger_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a") as fh:
-        fh.write(json.dumps(rec, sort_keys=True) + "\n")
+    rec = _receipt(p, decision_hash, sent, _redact(response))
+    _append_execution(Path(ledger_path), rec)
     return rec
 
 
