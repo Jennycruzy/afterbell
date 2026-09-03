@@ -6,3 +6,4 @@ __pycache__/
 *.egg-info/
 .DS_Store
 data/rehearsal.jsonl
+data/executions.jsonl

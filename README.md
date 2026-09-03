@@ -455,8 +455,17 @@ running, what is built, and what is still open.
   rather than quietly patched.
 - **There is no off-site backup of the recorded data.** The Friday-to-Tuesday
   window exists once and cannot be recreated; a disk failure would lose it.
-- **No executor exists.** The whole package makes three HTTP calls and all three
-  are `GET`. Whether AFTERBELL will ever place an order is an open decision.
+- **One module can place an order, and it ships disabled.** `afterbell.executor`
+  is the only code here that can trade. It is not importable from the package
+  root — `from afterbell import Guard` still reaches nothing that can place an
+  order — and it cannot originate one: it takes a decision the guard already
+  produced and does nothing but shrink it. Four ceilings apply and each can only
+  reduce: the guard's permitted notional, a hand-set `max_order_usdt`, a symbol
+  allowlist, and an `enabled` flag that is `false` in the shipped policy. The
+  loader refuses to start if execution is enabled with a non-positive cap, a cap
+  looser than the base notional, or an empty allowlist. Every execution is
+  receipted with both the permitted size and the placed size, so the cap is
+  auditable after the fact.
 
 ## Licence and disclaimer
 

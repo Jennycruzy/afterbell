@@ -10,9 +10,11 @@ Updated **2026-09-03 11:45 UTC** (Thursday morning UTC).
 | Dashboard | `afterbell-dashboard.service` | none | active on `127.0.0.1:8100` |
 | Watchdog | cron, every 5 min | none | restarts a stale recorder, logs disk pressure |
 
-Nothing in this repository can place an order. The whole package makes three
-HTTP calls and all three are `GET`. There is no executor yet, and no decision
-has been taken about whether there will be one.
+Nothing runs unattended that can place an order. The recorder, the dashboard
+and the watchdog make GET calls only and hold no credential. `afterbell.executor`
+can trade, ships with `enabled: false`, is never invoked by a service, and
+places only what the guard already permitted, capped again by a hand-set
+`max_order_usdt` (currently 25 USDT).
 
 ## Built
 
@@ -40,7 +42,7 @@ has been taken about whether there will be one.
 
 ## Not built
 
-Rationale layer (LLM narration), executor.
+Rationale layer (LLM narration).
 
 ## Filming plan corrected
 
@@ -64,9 +66,11 @@ regression cases in `tests/test_resolver.py` and the corpus itself.
 
 ## Open decisions — for tomorrow
 
-1. **Executor authority.** Manual-invoke only, manual with Binance's
-   confirm-before-execute disabled, fully autonomous, or no executor at all.
-   Nothing is built until this is settled. Not urgent until Friday.
+1. **Executor authority — settled.** Manual invocation, small size, Binance's
+   own confirm-before-execute left on. The guard runs *before* that prompt, so
+   the prompt is an asset rather than a liability: a human clicking yes at 03:00
+   is the failure being demonstrated. Live execution still needs
+   `scripts/connect_binance.py` run once, with the account holder present.
 2. **Sub-account funding.** Deferred. It is the hard ceiling on total exposure,
    since the agent cannot pull from the main account.
 3. **Weekend sizing curve.** Permitted size dips at maximum remaining darkness

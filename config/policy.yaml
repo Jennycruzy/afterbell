@@ -105,3 +105,31 @@ registry_sha256: b4ee770b92b077e1ff77d6dbf527400f435cd10eca27dbe936ab4b56b6746f1
 # Law 7 - the guard's entire action space. It may never originate an order or
 # increase a size.
 verdicts: [PASS, WARN, REDUCE, BLOCK]
+
+# ---------------------------------------------------------------------------
+# Execution.
+#
+# The guard decides; this decides whether anything is allowed to act on that
+# decision, and how much. Every value here is a CEILING applied on top of the
+# guard's answer, never a floor and never a permission to exceed it.
+#
+# `enabled: false` is the shipped default. Turning it on is a deliberate,
+# reviewable edit to a checksummed file, which is the only way to change it -
+# there is no flag, no environment variable and no request field that switches
+# it on at runtime.
+# ---------------------------------------------------------------------------
+executor:
+  enabled: false
+
+  # A hard cap in USDT, independent of the guard. If the guard permits 300 and
+  # this says 25, the order is 25. It exists so that a mistake anywhere in the
+  # sizing chain is bounded by a number a human chose by hand.
+  max_order_usdt: 25.0
+
+  # An allowlist. A symbol absent from this list cannot be traded even if every
+  # protection passes.
+  symbols: [NVDABUSDT]
+
+  # Orders are placed only while a human is watching. There is no scheduler and
+  # no daemon: something must invoke the executor for each order.
+  require_manual_invocation: true

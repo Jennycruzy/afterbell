@@ -124,6 +124,17 @@ class Decision:
         return {g.name: g.verdict.value for g in self.gates}
 
 
+def _bands_by_width(bands: dict[str, dict]) -> list[tuple[str, dict]]:
+    """Basis bands narrowest first, with the open-ended band last.
+
+    `max_abs_bps: null` means "everything wider than the rest", so it is the
+    tail of the ladder wherever it happens to sit in the file.
+    """
+    return sorted(bands.items(),
+                  key=lambda kv: (kv[1].get("max_abs_bps") is None,
+                                  float(kv[1].get("max_abs_bps") or 0.0)))
+
+
 def _ladder(rows: list[dict], key: str, value: float) -> float:
     """First row whose bound the value falls under. A null bound is the tail."""
     for row in rows:
@@ -283,8 +294,14 @@ def gate_basis(ctx: MarketContext, pol: Policy) -> GateResult:
     m = {"basis_bps": b, "reference_age_s": age,
          "reference_price": ctx.reference_price, "token_price": ctx.book.mid}
 
+    # Ordered by the width of the band, not by the order they appear in the
+    # file. Reading them in file order made the ladder silently dependent on
+    # YAML key order: re-serialising the policy alphabetically puts BROKEN
+    # first, whose cap is null, so it matched every basis and blocked
+    # everything. A rule that changes meaning when a file is tidied is a rule
+    # nobody can review.
     band_name, factor = "BROKEN", 0.0
-    for name, cfg in pol.basis_bands.items():
+    for name, cfg in _bands_by_width(pol.basis_bands):
         cap = cfg.get("max_abs_bps")
         if cap is None or abs(b) <= float(cap):
             band_name, factor = name, float(cfg["factor"])

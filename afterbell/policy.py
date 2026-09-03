@@ -107,6 +107,26 @@ class Policy:
     def registry_sha256(self) -> str:
         return str(self.raw["registry_sha256"])
 
+    # --- execution ceilings; all of them cap, none of them permit ---
+
+    @property
+    def executor_enabled(self) -> bool:
+        return bool(self.raw.get("executor", {}).get("enabled", False))
+
+    @property
+    def executor_max_order_usdt(self) -> float:
+        return float(self.raw.get("executor", {}).get("max_order_usdt", 0.0))
+
+    @property
+    def executor_symbols(self) -> set[str]:
+        return {str(x).upper()
+                for x in self.raw.get("executor", {}).get("symbols", [])}
+
+    @property
+    def executor_requires_manual(self) -> bool:
+        return bool(self.raw.get("executor", {})
+                    .get("require_manual_invocation", True))
+
 
 _REQUIRED = ("version", "status", "base_notional_usdt", "calibration", "clock",
              "liquidity", "basis", "corporate_actions", "registry_sha256",
@@ -153,6 +173,27 @@ def load(path: str | Path | None = None) -> Policy:
     missing = [s.value for s in MarketState if s.value not in pol.clock_factors]
     if missing:
         raise PolicyError(f"policy has no clock factor for states: {missing}")
+
+    # The executor's ceiling must be a ceiling. A cap at or above the base
+    # notional caps nothing, and a cap that is absent while execution is
+    # enabled is the "|| 0" this project exists to argue against (Law 3).
+    if "executor" in raw:
+        cap = pol.executor_max_order_usdt
+        if pol.executor_enabled:
+            if cap <= 0:
+                raise PolicyError(
+                    "executor is enabled with max_order_usdt "
+                    f"{cap}; a non-positive cap is not a cap")
+            if cap > pol.base_notional:
+                raise PolicyError(
+                    f"executor max_order_usdt {cap} exceeds base_notional "
+                    f"{pol.base_notional}; the execution ceiling may never be "
+                    "looser than the sizing it is capping (Law 7)")
+            if not pol.executor_symbols:
+                raise PolicyError(
+                    "executor is enabled with an empty symbol allowlist; an "
+                    "empty allowlist must block everything, and silently "
+                    "trading nothing is not what an operator would expect")
 
     for name, factor in pol.clock_factors.items():
         if not 0.0 <= factor <= 1.0:

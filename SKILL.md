@@ -105,10 +105,12 @@ signals compound into a block no single measurement supports.
 
 ## What it cannot do
 
-- **It cannot place, amend or cancel an order.** Its entire output space is
-  PASS, WARN, REDUCE, BLOCK plus a permitted notional never larger than the
+- **The guard cannot place, amend or cancel an order.** Its entire output space
+  is PASS, WARN, REDUCE, BLOCK plus a permitted notional never larger than the
   request. The action space is provably risk-reducing, which is what makes it
-  safe to grant autonomy to.
+  safe to grant autonomy to. A separate module, `afterbell.executor`, can place
+  an order and ships disabled; it cannot originate one, only shrink one the
+  guard already permitted, under a hand-set cap and a symbol allowlist.
 - **It cannot be talked out of a limit.** Thresholds live in a checksummed file
   on disk, loaded at startup. There is no argument, no keyword and no request
   field that raises one. This is tested, not asserted: `python -m

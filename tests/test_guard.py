@@ -272,3 +272,35 @@ def test_resize_to_nothing_is_refused(bad):
     o = OrderRequest("NVDABUSDT", Side.BUY, 5000.0)
     with pytest.raises(ValueError, match="positive"):
         o.at(bad)
+
+
+# ---------------- policy files must survive being tidied ----------------
+
+def test_basis_bands_do_not_depend_on_yaml_key_order():
+    """Found while testing the executor.
+
+    Re-serialising the policy with sorted keys put BROKEN first, whose cap is
+    null, so it matched every basis and blocked everything. A rule that changes
+    meaning when a file is alphabetised is a rule nobody can review.
+    """
+    import copy
+    import yaml
+    from afterbell.policy import load as load_policy
+
+    raw = copy.deepcopy(POL.raw)
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "policy.yaml"
+        p.write_text(yaml.safe_dump(raw, sort_keys=True))   # alphabetised
+        shuffled = load_policy(p)
+
+    assert list(shuffled.basis_bands) != list(POL.basis_bands)   # really reordered
+    r = req()
+    a = evaluate(r, ctx_at("2026-09-02T15:00:00"), POL)
+    b = evaluate(r, ctx_at("2026-09-02T15:00:00"), shuffled)
+    assert a.verdict is b.verdict
+    assert a.allowed_notional == b.allowed_notional
+    p3a = next(g for g in a.gates if g.name == "P3")
+    p3b = next(g for g in b.gates if g.name == "P3")
+    assert p3a.measurements["band"] == p3b.measurements["band"] == "NOMINAL"
