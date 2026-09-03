@@ -38,7 +38,13 @@ DATA = ROOT / "data" / "raw"
 HEARTBEAT = ROOT / "data" / "heartbeat"
 
 INTERVAL_S = 60
-DEPTH_LEVELS = 20
+# The full book, not a window onto it. At 20 levels the ladder spanned only
+# ~0.10% of mid on NVDABUSDT, so depth_1pct measured our own truncation rather
+# than the +/-1% band, and any walk cost above ~$10k returned INSUFFICIENT_DEPTH
+# against a book that was not actually exhausted. Measured 2026-09-03: these
+# books hold 261-764 levels in total, so limit=5000 returns every one of them
+# (17-41KB/symbol). Weight 250/call * 5 symbols = 1250/min against a 6000 budget.
+DEPTH_LEVELS = 5000
 TRADE_LIMIT = 50
 TIMEOUT = httpx.Timeout(15.0, connect=10.0)
 

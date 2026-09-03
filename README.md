@@ -87,11 +87,28 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 - **Policy file** (`config/policy.yaml`) — every threshold, checksummed.
 - **Market clock and `REFERENCE_AGE`** (`afterbell/clock.py`) — session state
   machine over a checked-in 2026 exchange calendar, with 17 tests.
+- **Measurement engine** (`afterbell/measure.py`) — half-spread, depth within a
+  band, marketable-order walk cost, and basis. 26 tests in total.
 
 ### Not yet built
 
-Measurement engine, resolver, guard, ledger, rationale layer, executor,
-dashboard.
+RTH baselines, resolver, guard, ledger, rationale layer, executor, dashboard.
+
+### A measurement bug the recorder caught early
+
+The recorder first stored 20 depth levels. Measured against real books on
+2026-09-03 that ladder spanned only **0.102%** of mid on NVDABUSDT, which meant
+`depth_1pct` was reporting our own truncation rather than the ±1% band, and any
+walk cost above ~$10k returned `INSUFFICIENT_DEPTH` against a book that was not
+remotely exhausted.
+
+These books turn out to hold 261–764 levels in total, so the recorder now
+requests `limit=5000` and stores every level (17–41KB per symbol per cycle).
+The correction is large: NVDABUSDT depth within ±1% went from $121k measured at
+20 levels to **$582k** measured against the whole book — a 4.8× understatement
+that would have propagated into every P2 baseline and every liquidity ratio
+derived from one. It was found by computing against recorded data rather than
+trusting the recorder's defaults, which is the entire argument for Law 1.
 
 ### One deliberate deviation from the design spec
 
