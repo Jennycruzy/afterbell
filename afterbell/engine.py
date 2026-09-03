@@ -97,7 +97,7 @@ class Guard:
         except Exception:
             return None
 
-    def fetch_reference(self, underlying: str):
+    def fetch_reference(self, underlying: str, at: datetime | None = None):
         """Reference price, or None with the reason recorded by the caller.
 
         Yahoo by default: it needs no credential, so this path holds none.
@@ -106,7 +106,7 @@ class Guard:
         """
         if os.environ.get("REFERENCE_PROVIDER", "yahoo").strip().lower() \
                 != "alpaca":
-            return self._fetch_yahoo(underlying)
+            return self._fetch_yahoo(underlying, at)
         key = os.environ.get("ALPACA_API_KEY", "").strip()
         sec = os.environ.get("ALPACA_SECRET_KEY", "").strip()
         if not key or not sec:
@@ -123,11 +123,11 @@ class Guard:
         if not snap:
             return None, f"no snapshot returned for {underlying}"
         try:
-            return from_snapshot(underlying, snap), None
+            return from_snapshot(underlying, snap, at), None
         except ReferenceUnavailable as exc:
             return None, str(exc)
 
-    def _fetch_yahoo(self, underlying: str):
+    def _fetch_yahoo(self, underlying: str, at: datetime | None = None):
         try:
             r = self._client.get(f"{YAHOO_CHART}/{underlying}",
                                  params={"range": "1d", "interval": "1d"})
@@ -136,13 +136,23 @@ class Guard:
         except Exception as exc:
             return None, f"reference fetch failed: {type(exc).__name__}: {exc}"
         try:
-            return from_yahoo(underlying, meta), None
+            return from_yahoo(underlying, meta, at), None
         except ReferenceUnavailable as exc:
             return None, str(exc)
 
     # ---------------- evaluation ----------------
 
-    def build_context(self, req: OrderRequest) -> MarketContext:
+    def build_context(self, req: OrderRequest,
+                      at: datetime | None = None) -> MarketContext:
+        """Assemble the context, optionally as of a stated time.
+
+        `at` moves the CLOCK only. The book, the pair status and the reference
+        are whatever the market says right now, because there is no honest way
+        to fetch a live order book as it stood at a past or future instant. A
+        rehearsal therefore shows real depth under a simulated calendar, and
+        the rehearsal script says so on every frame. Nothing in the production
+        path passes `at`.
+        """
         res = resolve(req.query or req.symbol)
         inst = REGISTRY.get(req.symbol)
         contract = (verify_contract(req.symbol, req.observed_contract,
@@ -151,11 +161,11 @@ class Guard:
 
         book = self.fetch_book(req.symbol)
         status = self.fetch_status(req.symbol)
-        ref, ref_note = (self.fetch_reference(inst.underlying)
+        ref, ref_note = (self.fetch_reference(inst.underlying, at)
                          if inst else (None, "symbol not in registry"))
 
         ctx = MarketContext(
-            clock=clock_at(),
+            clock=clock_at(at),
             book=book,
             baseline=self.baselines().get(req.symbol),
             reference_price=ref.price if ref else None,

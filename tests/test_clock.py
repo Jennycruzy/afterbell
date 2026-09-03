@@ -80,3 +80,30 @@ def test_last_close_before_the_weekend():
 def test_early_close_is_respected():
     """Christmas Eve 2026 closes at 13:00 ET, not 16:00."""
     assert evaluate(U("2026-12-24T19:00:00")).state is MarketState.RTH_POST
+
+
+# ---------------- what actually happens at Friday's bell ----------------
+#
+# The demo script says 20:00 UTC Friday flips RTH_OPEN -> CLOSED_WEEKEND. It
+# does not, and the shot is unrepeatable, so the real sequence is pinned here.
+
+def test_friday_bell_flips_to_post_not_weekend():
+    """20:00 UTC is 16:00 ET - the closing bell. After-hours runs on."""
+    from afterbell.clock import MarketState
+    assert evaluate(U("2026-09-04T19:59:00")).state is MarketState.RTH_OPEN
+    assert evaluate(U("2026-09-04T20:00:00")).state is MarketState.RTH_POST
+
+
+def test_weekend_starts_four_hours_after_the_bell():
+    """00:00 UTC Saturday is 20:00 ET Friday - the end of after-hours."""
+    from afterbell.clock import MarketState
+    assert evaluate(U("2026-09-04T23:59:00")).state is MarketState.RTH_POST
+    assert evaluate(U("2026-09-05T00:00:00")).state is MarketState.CLOSED_WEEKEND
+
+
+def test_reference_age_is_zero_at_the_bell_and_counts_from_there():
+    from afterbell.clock import last_rth_close
+    bell = U("2026-09-04T20:00:00")
+    assert last_rth_close(bell) == bell
+    later = U("2026-09-04T23:30:00")
+    assert (later - last_rth_close(later)).total_seconds() == 3.5 * 3600
