@@ -10,6 +10,7 @@ measured; it never computes a verdict of its own.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,13 +22,16 @@ from afterbell.clock import (
 )
 from afterbell.instruments import REGISTRY, TOKEN_SYMBOLS, registry_sha256
 from afterbell.ledger import head_of
-from afterbell.measure import Book, Side, depth_within, half_spread_bps, walk_cost_bps
+from afterbell.measure import (Book, Side, basis_bps, depth_within,
+                               half_spread_bps, walk_cost_bps)
 from afterbell.measure import BookProblem
 from afterbell.policy import load as load_policy
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
 RECEIPTS = ROOT / "data" / "receipts.jsonl"
+GUARD_STATE = ROOT / "data" / "guard_state.json"
+CALIBRATION = ROOT / "docs" / "calibration.md"
 
 _cache: dict = {"ts": 0.0, "data": None}
 _lock = threading.Lock()
@@ -46,6 +50,108 @@ def _latest_records() -> dict[str, dict]:
     return out
 
 
+def _latest_references() -> dict[str, dict]:
+    """Most recent valid derived reference per underlying."""
+    out: dict[str, dict] = {}
+    for path in sorted(RAW.glob("*/reference.jsonl"))[-3:]:
+        with path.open() as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                derived = row.get("derived")
+                if not isinstance(derived, dict):
+                    continue
+                for underlying, value in derived.items():
+                    if not isinstance(value, dict):
+                        continue
+                    if not isinstance(value.get("price"), (int, float)) \
+                            or not isinstance(value.get("ts"), str):
+                        continue
+                    out[underlying] = {
+                        "price": float(value["price"]), "ts": value["ts"],
+                        "provider": value.get("provider"),
+                        "source": value.get("source"),
+                    }
+    return out
+
+
+def _history(symbol: str, underlying: str, limit: int = 240) -> list[dict]:
+    """Pair recorded books with recorded references for the live chart."""
+    refs: dict[tuple[int, str], dict] = {}
+    for path in sorted(RAW.glob("*/reference.jsonl")):
+        with path.open() as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                cycle = row.get("cycle")
+                derived = row.get("derived")
+                if not isinstance(cycle, int) or not isinstance(derived, dict):
+                    continue
+                ref = derived.get(underlying)
+                if isinstance(ref, dict) and isinstance(ref.get("price"), (int, float)) \
+                        and isinstance(ref.get("ts"), str):
+                    refs[(cycle, underlying)] = ref
+    points: list[dict] = []
+    for path in sorted(RAW.glob("*/token.jsonl")):
+        with path.open() as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if row.get("symbol") != symbol:
+                    continue
+                ref = refs.get((row.get("cycle"), underlying))
+                if ref is None:
+                    continue
+                book = Book.from_record(row)
+                if book is None:
+                    continue
+                try:
+                    token_ts = datetime.fromisoformat(row["ts"].replace("Z", "+00:00"))
+                    ref_ts = datetime.fromisoformat(ref["ts"].replace("Z", "+00:00"))
+                    age_s = (token_ts.astimezone(timezone.utc) -
+                             ref_ts.astimezone(timezone.utc)).total_seconds()
+                    if age_s < 0:
+                        continue
+                    points.append({
+                        "ts": row["ts"],
+                        "basis_bps": basis_bps(book.mid, float(ref["price"])),
+                        "reference_age_s": age_s,
+                    })
+                except (KeyError, TypeError, ValueError):
+                    continue
+    if len(points) <= limit:
+        return points
+    stride = (len(points) - 1) / (limit - 1)
+    return [points[round(i * stride)] for i in range(limit)]
+
+
+def _load_guard_state() -> dict:
+    if not GUARD_STATE.exists():
+        return {"status": "STARTING", "allowed_notional": None,
+                "note": "guard evaluator has not written a state yet"}
+    try:
+        state = json.loads(GUARD_STATE.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"status": "UNKNOWN", "allowed_notional": None,
+                "note": f"guard state unreadable: {type(exc).__name__}: {exc}"}
+    if not isinstance(state, dict):
+        return {"status": "UNKNOWN", "allowed_notional": None,
+                "note": "guard state is not an object"}
+    return state
+
+
+def _calibration_text() -> str:
+    if not CALIBRATION.exists():
+        return "Calibration has not been generated yet."
+    try:
+        return CALIBRATION.read_text()
+    except OSError as exc:
+        return f"Calibration unavailable: {type(exc).__name__}: {exc}"
+
+
 def _receipts(limit: int = 40) -> list[dict]:
     if not RECEIPTS.exists():
         return []
@@ -57,8 +163,10 @@ def build_state() -> dict:
     pol = load_policy()
     clock = clock_at()
     baselines = bl.build(min_samples=pol.min_rth_samples,
-                         band_pct=pol.depth_band_pct)
+                         band_pct=pol.depth_band_pct,
+                         window_days=pol.baseline_window_days)
     latest = _latest_records()
+    references = _latest_references()
 
     symbols = []
     for sym in TOKEN_SYMBOLS:
@@ -66,6 +174,17 @@ def build_state() -> dict:
         rec = latest.get(sym)
         book = Book.from_record(rec) if rec else None
         base = baselines.get(sym)
+        reference = references.get(inst.underlying)
+        reference_age_s = None
+        if reference is not None:
+            try:
+                ref_ts = datetime.fromisoformat(reference["ts"].replace("Z", "+00:00"))
+                reference_age_s = (datetime.now(timezone.utc) -
+                                   ref_ts.astimezone(timezone.utc)).total_seconds()
+                if reference_age_s < 0:
+                    reference_age_s = None
+            except (KeyError, TypeError, ValueError):
+                reference_age_s = None
         row = {
             "symbol": sym, "asset": inst.token_asset,
             "underlying": inst.underlying, "name": inst.underlying_name,
@@ -74,6 +193,10 @@ def build_state() -> dict:
             "observed_at": rec.get("ts") if rec else None,
             "mid": None, "half_spread_bps": None, "depth_1pct": None,
             "walk_5k_bps": None, "spread_ratio": None, "liquidity_ratio": None,
+            "reference_price": reference.get("price") if reference else None,
+            "reference_ts": reference.get("ts") if reference else None,
+            "reference_age_s": reference_age_s,
+            "basis_bps": None,
             "baseline_status": base.status if base else "NO_DATA",
             "n_rth": base.n_rth if base else 0,
             "n_by_state": base.n_by_state if base else {},
@@ -84,6 +207,8 @@ def build_state() -> dict:
             row["mid"] = book.mid
             row["half_spread_bps"] = hs
             row["depth_1pct"] = dp
+            if row["reference_price"] is not None:
+                row["basis_bps"] = basis_bps(book.mid, row["reference_price"])
             w = walk_cost_bps(book, 5000.0, Side.BUY)
             row["walk_5k_bps"] = (None if isinstance(w, BookProblem)
                                   else w.cost_bps)
@@ -92,18 +217,14 @@ def build_state() -> dict:
                 row["liquidity_ratio"] = base.liquidity_ratio(dp)
         symbols.append(row)
 
-    # Law 8: REFERENCE_AGE is never absent from a surface. Until a reference
-    # price is available it is derived from the exchange calendar - the age of
-    # the last regular session's close - and labelled with that source. The
-    # calendar knows when the session ended even when no price feed is
-    # configured; what it cannot give is the price, so the basis stays blank
-    # rather than being invented.
+    # Law 8: show the age of the actual recorded regular-session reference.
+    # The calendar is still exposed separately in `clock`; it never becomes a
+    # substitute for a missing price feed.
     now = datetime.now(timezone.utc)
-    if clock.state is MarketState.RTH_OPEN:
-        ref_age_s, ref_source = 0.0, "live_session"
-    else:
-        ref_age_s = (now - last_rth_close(now)).total_seconds()
-        ref_source = "exchange_calendar"
+    primary = next((s for s in symbols if s["underlying"] == "NVDA"), None)
+    ref_age_s = primary["reference_age_s"] if primary else None
+    ref_source = ("recorded_reference" if ref_age_s is not None
+                  else "missing_reference")
 
     return {
         "generated_at": now.isoformat(),
@@ -124,12 +245,22 @@ def build_state() -> dict:
                    "min_rth_samples": pol.min_rth_samples},
         "registry_sha256": registry_sha256(),
         "ledger_head": head_of(RECEIPTS),
+        "guard": _load_guard_state(),
+        "history": _history("NVDABUSDT", "NVDA"),
+        "calibration_markdown": _calibration_text(),
         "symbols": symbols,
         "receipts": _receipts(),
     }
 
 
-def cached_state(max_age_s: float = 5.0) -> dict:
+def cached_state(max_age_s: float = 60.0) -> dict:
+    """Serve one measured snapshot for the recorder/guard cadence.
+
+    Building the snapshot parses recorded full-depth books. A five-second
+    cache would rescan that immutable history more often than either live
+    producer changes it, while the generated timestamp remains visible to
+    the reader.
+    """
     import time
     with _lock:
         if _cache["data"] is None or time.time() - _cache["ts"] > max_age_s:
@@ -188,6 +319,9 @@ font-weight:600;letter-spacing:.04em}
 word-break:break-all}
 .mono{color:var(--acc)}
 .empty{padding:22px 16px;color:var(--dim);font-size:12.5px}
+.chart{padding:16px;overflow-x:auto}.chart svg{width:100%;min-width:680px;height:240px}
+.chart-note{color:var(--dim);font-size:11px;margin-top:8px}.cal{padding:16px;overflow:auto}
+.cal pre{margin:0;color:var(--fg);font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 </style></head><body><div class="wrap">
 <h1>A F T E R B E L L</h1>
 <div class="sub">The stock sleeps. The token doesn't. &mdash; calendar-aware risk boundary for tokenized equities</div>
@@ -209,7 +343,9 @@ function hero(d){
  <div><div class="k">NEXT REGULAR PRINT</div><div class="v">${f(c.hours_to_next_open,2)}h</div></div>
  ${c.holiday?`<div><div class="k">HOLIDAY</div><div class="v closed">${c.holiday}</div></div>`:''}
  <div><div class="k">POLICY</div><div class="v"><span class="tag ${d.policy.status==='CALIBRATED'?'CALIBRATED':'UNCALIBRATED'}">${d.policy.status}</span></div></div>
- </div></div>`;}
+ <div><div class="k">GUARD</div><div class="v"><span class="tag ${d.guard.status||'UNKNOWN'}">${d.guard.status||'UNKNOWN'}</span></div>
+ <div style="color:var(--dim);font-size:10px;margin-top:3px">max new exposure ${f(d.guard.allowed_notional)} USDT</div></div>
+ </div><div style="color:var(--dim);font-size:11px;margin-top:14px">${d.guard.note||''}</div></div>`;}
 function symbols(d){
  const r=d.symbols.map(s=>`<tr>
  <td><b>${s.asset}</b><div style="color:var(--dim);font-size:11px">${s.name}</div></td>
@@ -217,6 +353,7 @@ function symbols(d){
  <td>${f(s.mid)}</td><td>${f(s.half_spread_bps,3)}</td>
  <td>${s.depth_1pct===null?'&mdash;':'$'+Math.round(s.depth_1pct).toLocaleString()}</td>
  <td>${f(s.walk_5k_bps,1)}</td>
+ <td>${f(s.basis_bps,1)}</td>
  <td>${s.spread_ratio===null?'&mdash;':f(s.spread_ratio,2)+'&times;'}</td>
  <td>${s.liquidity_ratio===null?'&mdash;':Math.round(s.liquidity_ratio*100)+'%'}</td>
  <td><span class="tag ${s.baseline_status}">${s.baseline_status}</span>
@@ -224,8 +361,26 @@ function symbols(d){
  return `<div class="panel"><div class="ph">MEASURED NOW &mdash; ratios appear once a symbol has ${d.policy.min_rth_samples} regular-session samples</div>
  <div class="scroll"><table><thead><tr><th>INSTRUMENT</th><th>PAIR</th><th>MID</th>
  <th>HALF-SPREAD bps</th><th>DEPTH &plusmn;1%</th><th>WALK $5k bps</th>
- <th>SPREAD RATIO</th><th>DEPTH vs RTH</th><th>BASELINE</th></tr></thead>
+ <th>BASIS bps</th><th>SPREAD RATIO</th><th>DEPTH vs RTH</th><th>BASELINE</th></tr></thead>
  <tbody>${r}</tbody></table></div></div>`;}
+function chart(d){
+ const h=d.history||[];
+ if(h.length<2)return `<div class="panel"><div class="ph">BASIS + REFERENCE_AGE</div><div class="empty">Not enough paired reference/book samples for a chart yet.</div></div>`;
+ return `<div class="panel"><div class="ph">NVDAB &mdash; RECORDED BASIS AND REFERENCE_AGE</div><div class="chart"><svg id="history-chart" viewBox="0 0 900 240" role="img" aria-label="Recorded basis and reference age"></svg><div class="chart-note"><span style="color:var(--acc)">blue = basis bps</span> &nbsp; <span style="color:var(--warn)">amber = reference age hours</span>. Values are paired from raw recorder cycles; no interpolation.</div></div></div>`;
+}
+function drawChart(d){
+ const svg=document.getElementById('history-chart'),h=d.history||[];if(!svg||h.length<2)return;
+ const W=900,H=240,L=46,R=18,T=18,B=28;
+ const bs=h.map(x=>Number(x.basis_bps)),as=h.map(x=>Number(x.reference_age_s)/3600);
+ const bmin=Math.min(...bs),bmax=Math.max(...bs),amin=Math.min(...as),amax=Math.max(...as);
+ const scale=(v,lo,hi)=>hi===lo?0.5:(v-lo)/(hi-lo);
+ const path=(values,lo,hi)=>values.map((v,i)=>`${i?'L':'M'} ${L+(W-L-R)*i/(values.length-1)} ${T+(H-T-B)*(1-scale(v,lo,hi))}`).join(' ');
+ svg.innerHTML=`<line x1="${L}" y1="${H-B}" x2="${W-R}" y2="${H-B}" stroke="#303944"/><line x1="${L}" y1="${T}" x2="${L}" y2="${H-B}" stroke="#303944"/><path d="${path(bs,bmin,bmax)}" fill="none" stroke="#58a6ff" stroke-width="2"/><path d="${path(as,amin,amax)}" fill="none" stroke="#d29922" stroke-width="2"/><text x="4" y="18" fill="#58a6ff" font-size="11">${bmax.toFixed(0)} bps</text><text x="4" y="${H-B}" fill="#58a6ff" font-size="11">${bmin.toFixed(0)}</text><text x="${W-R-70}" y="18" fill="#d29922" font-size="11">${amax.toFixed(1)}h</text><text x="${W-R-40}" y="${H-B}" fill="#d29922" font-size="11">${amin.toFixed(1)}h</text>`;
+}
+function calibration(d){
+ const text=(d.calibration_markdown||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+ return `<div class="panel"><div class="ph">CALIBRATION &mdash; MEASURED THRESHOLDS AND SAMPLE COUNTS</div><div class="cal"><pre>${text}</pre></div></div>`;
+}
 function receipts(d){
  if(!d.receipts.length)return `<div class="panel"><div class="ph">RECEIPT LEDGER</div>
  <div class="empty">No decisions recorded yet. Every evaluation &mdash; including every refusal &mdash; is appended here as a hash-chained receipt.</div></div>`;
@@ -240,7 +395,8 @@ function receipts(d){
  return `<div class="panel"><div class="ph">RECEIPT LEDGER &mdash; refusals shown as prominently as passes</div>${rows}</div>`;}
 async function tick(){
  try{const d=await (await fetch('/api/state')).json();
-  document.getElementById('app').innerHTML=hero(d)+symbols(d)+receipts(d);
+  document.getElementById('app').innerHTML=hero(d)+symbols(d)+chart(d)+calibration(d)+receipts(d);
+  drawChart(d);
   document.getElementById('foot').innerHTML=
    `policy sha256 <span class="mono">${d.policy.sha256}</span><br>`+
    `registry sha256 <span class="mono">${d.registry_sha256}</span><br>`+
@@ -248,7 +404,11 @@ async function tick(){
    `generated ${d.generated_at}`;
   refAge=d.reference_age_s??null;lastSync=Date.now();
   paint(d);
- }catch(e){}}
+ }catch(e){
+  console.error('AFTERBELL dashboard refresh failed',e);
+  const app=document.getElementById('app');
+  if(app&&!app.textContent)app.innerHTML='<div class="panel"><div class="empty">Dashboard state unavailable; the server logged the failure.</div></div>';
+ }
 function paint(d){const el=document.getElementById('age');if(!el)return;
  el.innerHTML=d.reference_age_s===null||d.reference_age_s===undefined?'no reference':age(d.reference_age_s+(Date.now()-lastSync)/1000);}
 tick();setInterval(tick,10000);
@@ -282,8 +442,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, json.dumps({"error": str(exc)}).encode(),
                        "application/json")
 
-    def log_message(self, *a) -> None:
-        pass
+    def log_message(self, fmt, *args) -> None:
+        logging.getLogger("afterbell.dashboard").info(fmt, *args)
 
 
 def main() -> None:

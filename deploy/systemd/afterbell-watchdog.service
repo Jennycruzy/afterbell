@@ -1,0 +1,9 @@
+[Unit]
+Description=AFTERBELL recorder and service watchdog
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/ubuntu/afterbell
+EnvironmentFile=-/etc/afterbell/monitor.env
+ExecStart=/home/ubuntu/afterbell/scripts/watchdog.sh

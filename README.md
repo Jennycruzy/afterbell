@@ -85,9 +85,10 @@ off-hours order-book data it collects cannot be back-filled after the fact.
   launch pairs with issuer, instrument class, network and canonical BNB Smart
   Chain contract address, checksummed at load.
 - **Market-data recorder** (`afterbell/recorder.py`) — 60s poll of book ticker,
-  20-level depth, recent trades and per-pair `exchangeInfo` status across all
-  five pairs, plus the Alpaca reference side. Every fetch failure writes an
-  annotated gap marker rather than a fabricated value.
+  the full Binance depth ladder (`limit=5000`), recent trades and per-pair
+  `exchangeInfo` status across all five pairs, plus the Yahoo reference side.
+  Alpaca is an optional reference provider, not silently mixed into Yahoo. Every
+  fetch failure writes an annotated gap marker rather than a fabricated value.
 - **Policy file** (`config/policy.yaml`) — every threshold, checksummed.
 - **Market clock and `REFERENCE_AGE`** (`afterbell/clock.py`) — session state
   machine over a checked-in 2026 exchange calendar, with 17 tests.
@@ -118,17 +119,35 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 
 - **Dashboard** (`afterbell/dashboard.py`) — read-only, unauthenticated,
   `REFERENCE_AGE` permanent above the fold, refusals styled as prominently as
-  passes, policy checksum and ledger head on every page.
+  passes, recorded basis/age chart, calibration table, guard state, policy
+  checksum and ledger head on every page.
+- **P4/P6 public checks** (`afterbell/public_checks.py`) — live unauthenticated
+  bStocks status and token-audit calls. Unsupported bStocks auditing is exposed
+  as an explicit registry-only result, never reported as a clean audit.
+- **Agent OS connector and executor** (`afterbell/mcp.py`,
+  `scripts/connect_binance.py`, `afterbell/executor.py`) — real Streamable HTTP
+  session handling, OAuth PKCE, redacted execution receipts and monotone
+  execution ceilings. Execution remains disabled by the shipped policy.
+- **Narration adapter** (`afterbell/rationale.py`) — optional
+  OpenAI-compatible prose around the deterministic rationale. Provider text is
+  rejected if it contains digits or measurements, and can never enter sizing.
+- **VPS operations** — separate recorder, dashboard and guard units, plus
+  backup and watchdog timers. External backup/alert destinations are supplied
+  outside the repository.
 
-### Not yet built
+### Operator configuration still required
 
-Rationale layer, executor.
+These paths are built, but the external fact or destination is intentionally
+not fabricated: authenticated Agent OS OAuth and bStocks account eligibility
+need the account holder; Alpaca corporate-action lookahead needs separate
+credentials in `.guard.env`; a public HTTPS hostname needs DNS; and off-site
+backup/phone alerting need destinations. Yahoo remains the active reference
+provider on the default VPS path.
 
-`REFERENCE_AGE` is shown even before a reference price feed is configured: the
-exchange calendar knows when the last regular session ended, so the age is
-derived from it and labelled `source: exchange_calendar`. What the calendar
-cannot supply is the price, so the basis stays blank rather than being
-invented.
+`REFERENCE_AGE` is shown as the age of the actual recorded regular-session
+reference. If that price is missing, the dashboard says `no reference` and the
+basis stays blank; the calendar state remains visible but never substitutes a
+price or a timestamp.
 
 ## Using it
 
@@ -296,6 +315,9 @@ recorded and flagged `EXT`; they are information, not a reference.
 The default provider is **Yahoo**, which needs no key and no account. Alpaca
 remains supported behind `REFERENCE_PROVIDER=alpaca` for anyone who wants the
 reference to come from the firm that clears the shares behind these tokens.
+The P4 corporate-action lookahead is a separate Alpaca client: configuring it
+does not switch the price provider, and the guard service reads only the
+separate `.guard.env` rather than the OAuth `.env`.
 
 Yahoo is the default for three measured reasons, not for convenience.
 
@@ -369,30 +391,36 @@ yardstick built from the weekend. Staleness already has its own control, the
 DEGRADED floor keyed on reference age, and one risk must not be counted twice.
 
 <!-- CALIBRATION TABLE START -->
-Generated 2026-09-03 11:33Z from 2,870 measured books and 120 reference prints. Depth band ±1%.
+Generated 2026-09-03 19:43Z from 5,325 measured books and 1,507 reference prints. Depth band ±1%; baseline window: rolling 7-day window.
 
 ### Session baselines (P2 denominators)
 
 | Symbol | State | n | Median half-spread (bps) | Median depth ±1% (USDT) | p95 half-spread | p05 depth |
 |---|---|---:|---:|---:|---:|---:|
 | CRCLBUSDT | CLOSED_OVERNIGHT | 361 | 0.563 | 759,510 | 1.126 | 676,761 |
-| CRCLBUSDT | RTH_PRE | 213 | 1.113 | 688,364 | 1.127 | 491,611 |
+| CRCLBUSDT | RTH_OPEN | 374 | 0.977 | 771,395 | 2.504 | 707,485 |
+| CRCLBUSDT | RTH_PRE | 330 | 1.095 | 726,373 | 1.126 | 507,560 |
 | MUBUSDT | CLOSED_OVERNIGHT | 361 | 0.314 | 652,633 | 0.891 | 604,350 |
-| MUBUSDT | RTH_PRE | 213 | 0.736 | 712,194 | 1.422 | 616,654 |
+| MUBUSDT | RTH_OPEN | 374 | 0.794 | 622,353 | 2.209 | 565,952 |
+| MUBUSDT | RTH_PRE | 330 | 0.708 | 703,193 | 1.423 | 612,797 |
 | NVDABUSDT | CLOSED_OVERNIGHT | 361 | 0.443 | 582,910 | 1.110 | 557,807 |
-| NVDABUSDT | RTH_PRE | 213 | 1.109 | 596,780 | 2.005 | 546,849 |
+| NVDABUSDT | RTH_OPEN | 374 | 1.089 | 601,920 | 2.214 | 563,562 |
+| NVDABUSDT | RTH_PRE | 330 | 1.107 | 597,559 | 2.004 | 548,904 |
 | SNDKBUSDT | CLOSED_OVERNIGHT | 361 | 0.032 | 679,883 | 0.194 | 635,678 |
-| SNDKBUSDT | RTH_PRE | 213 | 0.033 | 709,959 | 0.357 | 632,757 |
+| SNDKBUSDT | RTH_OPEN | 374 | 0.128 | 749,849 | 0.992 | 668,139 |
+| SNDKBUSDT | RTH_PRE | 330 | 0.033 | 718,458 | 0.423 | 652,757 |
 | TSLABUSDT | CLOSED_OVERNIGHT | 361 | 0.557 | 425,234 | 0.978 | 396,194 |
-| TSLABUSDT | RTH_PRE | 213 | 0.694 | 452,123 | 1.387 | 426,487 |
+| TSLABUSDT | RTH_OPEN | 374 | 0.918 | 467,697 | 2.647 | 444,624 |
+| TSLABUSDT | RTH_PRE | 330 | 0.828 | 447,034 | 1.525 | 414,557 |
 
-**Status: UNCALIBRATED.** P2's denominators are RTH_OPEN medians and 5 of 5 symbols are below the 300-sample minimum (CRCLBUSDT 0, MUBUSDT 0, NVDABUSDT 0, SNDKBUSDT 0, TSLABUSDT 0). Those symbols receive the most restrictive tier and are not quietly compared against a baseline built from too little data.
+**Status: CALIBRATED.** Every symbol has at least 300 RTH_OPEN samples.
 
 ### Basis distribution by state (P3 bands)
 
 | State | n | p50 \|basis\| | p75 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
-| RTH_PRE | 125 | 71.9 | 90.8 | 140.2 | 150.7 |
+| RTH_OPEN | 1,172 | 3.8 | 7.7 | 23.4 | 48.2 |
+| RTH_PRE | 710 | 77.1 | 138.0 | 257.8 | 319.8 |
 
 Bands are proposed at empirical percentiles — WATCH at p75, DEGRADED at p95, BROKEN at p99 — rather than at round numbers.
 
@@ -401,11 +429,12 @@ Bands are proposed at empirical percentiles — WATCH at p75, DEGRADED at p95, B
 | State | n | $100 | $500 | $2,000 | $10,000 |
 |---|---:|---:|---:|---:|---:|
 | CLOSED_OVERNIGHT | 361 | 0.6 | 0.8 | 1.2 | 3.3 |
-| RTH_PRE | 213 | 0.8 | 1.1 | 1.6 | 3.9 |
+| RTH_OPEN | 374 | 1.0 | 1.3 | 1.9 | 5.0 |
+| RTH_PRE | 330 | 0.8 | 1.1 | 1.5 | 3.7 |
 
 Median cost in bps to fill a marketable buy of each size against the recorded book. A size the book could not fill is counted as a miss, not as a large number: unfillable and expensive are different findings.
 
-**Not yet observed:** RTH_OPEN, CLOSED_WEEKEND, CLOSED_HOLIDAY. These rows appear once the recorder has lived through them; they are not estimated from the states that were.
+**Not yet observed:** CLOSED_WEEKEND, CLOSED_HOLIDAY. These rows appear once the recorder has lived through them; they are not estimated from the states that were.
 <!-- CALIBRATION TABLE END -->
 
 ## Connecting to Binance Agent OS
@@ -435,10 +464,12 @@ advertises `client_id_metadata_document_supported`, so `client_id` is the URL of
 
 ## Operations
 
-Two unattended services, both unauthenticated and read-only:
-`afterbell-recorder` and `afterbell-dashboard`, with a cron watchdog that
-restarts a stale recorder every five minutes. See `STATUS.md` for what is
-running, what is built, and what is still open.
+Three unattended services are installed: `afterbell-recorder`,
+`afterbell-dashboard` and the read-only `afterbell-guard`. The five-minute
+watchdog and hourly backup are systemd timers. The recorder and dashboard hold
+no credential; the guard has no Binance OAuth token and can optionally read
+only the separate Alpaca corporate-action credentials. See `STATUS.md` for
+what is running, what is built, and what is still open.
 
 ## Known limitations
 
@@ -447,14 +478,20 @@ running, what is built, and what is still open.
   at its own layer and notifies; it cannot reach that control.
 - Calibration rests on a small number of days of data, stated explicitly above
   once measured.
-- Whether the `binance-tokenized-securities-info` skill resolves bStocks (it
-  self-describes as covering Ondo tokenized stocks) is **untested**. It cannot
-  be tested without an authorized account, because the Agent OS gateway rejects
-  unauthenticated reads. If it does not resolve them, P4 degrades to
-  `exchangeInfo` status plus Alpaca announcements, and that will be stated here
-  rather than quietly patched.
-- **There is no off-site backup of the recorded data.** The Friday-to-Tuesday
-  window exists once and cannot be recreated; a disk failure would lose it.
+- The authenticated `binance-tokenized-securities-info` skill query is still
+  account-bound and pending. The unauthenticated bStocks status endpoint was
+  live-verified for NVDAB on 2026-09-03 as `TRADING`; the public token-audit
+  endpoint returned `isSupported=false` and `hasResult=false`, so P6 is
+  explicitly registry-only for bStocks. The code supports the authenticated
+  skill path when OAuth is completed, but does not claim that result in advance.
+- The P4 Alpaca corporate-action lookahead is implemented and strict, but no
+  Alpaca credentials are installed on this VPS. Until `.guard.env` is supplied,
+  receipts label P4 as a current-status fallback/partial rather than claiming
+  that future announcements were checked. This does not change Yahoo pricing.
+- **Off-site backup and external alerting are wired but not configured.** The
+  backup uses non-destructive `rclone copy` and excludes the OAuth pending file;
+  the watchdog records a local gap until a remote and healthcheck URL are
+  supplied. The Friday-to-Tuesday window still needs that second destination.
 - **One module can place an order, and it ships disabled.** `afterbell.executor`
   is the only code here that can trade. It is not importable from the package
   root — `from afterbell import Guard` still reaches nothing that can place an

@@ -1,4 +1,6 @@
 .env
+.guard.env
+.backup.env
 .venv/
 data/
 __pycache__/

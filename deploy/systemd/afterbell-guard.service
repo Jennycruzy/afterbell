@@ -1,0 +1,24 @@
+[Unit]
+Description=AFTERBELL continuous read-only guard evaluator
+After=network-online.target afterbell-recorder.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/afterbell
+Environment=PYTHONUNBUFFERED=1
+Environment=REFERENCE_PROVIDER=yahoo
+# Optional P4-only credentials; this is not the OAuth .env and is not loaded
+# by the recorder or dashboard. Missing file means current-status fallback.
+EnvironmentFile=-/home/ubuntu/afterbell/.guard.env
+ExecStart=/home/ubuntu/afterbell/.venv/bin/python -m afterbell.guard_service
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/ubuntu/afterbell/data
+
+[Install]
+WantedBy=multi-user.target

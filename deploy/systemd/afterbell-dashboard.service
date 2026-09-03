@@ -1,0 +1,21 @@
+[Unit]
+Description=AFTERBELL public read-only dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/afterbell
+Environment=PYTHONUNBUFFERED=1
+# Read-only dashboard; nginx/domain TLS may proxy this same port.
+ExecStart=/home/ubuntu/afterbell/.venv/bin/python -m afterbell.dashboard --host 0.0.0.0 --port 8100
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/ubuntu/afterbell/data
+
+[Install]
+WantedBy=multi-user.target

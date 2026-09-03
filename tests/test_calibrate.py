@@ -124,3 +124,11 @@ def test_table_reports_calibrated_once_samples_suffice(tmp_path):
     raw = write_dataset(tmp_path, "2026-09-02", 320, RTH)
     table = render_table(run(raw), min_rth=300)
     assert "**Status: CALIBRATED.**" in table
+
+
+def test_report_can_state_and_apply_a_rolling_window(tmp_path):
+    raw = write_dataset(tmp_path, "2026-09-02", 10, RTH)
+    cal = run(raw, window_days=7, now=RTH + timedelta(days=1))
+    assert cal.window_days == 7
+    assert cal.n_books == 10
+    assert "rolling 7-day window" in render_table(cal)

@@ -68,17 +68,19 @@ python -m afterbell.engine --symbol NVDABUSDT --notional 5000 --query "buy Nvidi
                                 REFERENCE_AGE     16:00:00
 
     P1  REDUCE  f=0.060  reference market CLOSED_WEEKEND; 73.5h until the next regular print (extended closure)
-    P2  REDUCE  f=0.200  no calibrated RTH baseline for this symbol (0 samples, 300 required)
+    P2  BLOCK   f=0.000  no calibrated RTH baseline for this symbol (0 samples, 300 required)
     P3  PASS    f=1.000  token -3bps against a reference 16:00:00 old [NOMINAL]
-    P4  PASS    f=1.000  pair status TRADING, no corporate action in the lookahead window
+    P4  WARN    f=1.000  pair status TRADING verified; future corporate-action lookahead is partial
     P5  PASS    f=1.000  NVDAB resolved to NVDA via BTech Holdings Limited
     P6  PASS    f=1.000  venue-internal spot pair; canonical registry applies
 
-  DECISION  REDUCE    requested 5,000 -> allowed 300 USDT
-  BINDING   P1
+  DECISION  BLOCK     requested 5,000 -> allowed 0 USDT
+  BINDING   P1,P2
 ```
 
-Real output, Saturday 5 Sep 2026 12:00Z. Note that the two clock numbers are
+This is the output shape for a Saturday evaluation before the RTH baseline has
+reached its required sample count. P2 blocks until that denominator is measured.
+Note that the two clock numbers are
 different measurements and are not interchangeable: `REFERENCE_AGE` 16:00:00 is
 how stale the last print already is, while 73.5h is how long until the next
 one. P1 takes the worse of them. Here the darkness *ahead* binds, because Labor
@@ -137,14 +139,20 @@ Thresholds are measured, not invented — `python -m afterbell.calibrate`
 publishes the table with a sample count beside every number, and reports
 `UNCALIBRATED` rather than printing a statistic it lacks the samples for.
 
-Reference prices need no credential by default. The recorder and the guard hold
-no Binance credential at all, by design: market data is unauthenticated, so
-this skill cannot die from an expired token.
+Yahoo is the default reference-price provider and needs no credential. Alpaca
+can be selected for reference prices with `REFERENCE_PROVIDER=alpaca`, and its
+separate read-only corporate-action client powers P4 lookahead when credentials
+are supplied to the guard service. Alpaca is never silently substituted for
+Yahoo, and the recorder still holds no Binance or Alpaca credential.
 
 ## Status and honesty
 
 - Contract addresses come from a checked-in registry hashed at load.
 - The instrument registry covers the five launch bStocks only.
+- Binance's public bStocks status path is live-checked; an unsupported public
+  token audit is recorded as registry-only rather than as a clean audit.
+- The optional Alpaca corporate-action lookahead is strict: a malformed or
+  failed response is a gap, while a returned event blocks the new entry.
 - Adversarial payloads used to test this skill are synthetic, self-contained,
   and never published anywhere a third party's agent could encounter them.
 - bStocks are **Certificates representing Financial Instruments** (para 92,

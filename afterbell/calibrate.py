@@ -36,7 +36,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from afterbell.baselines import RAW, _pct, iter_records, to_sample
+from afterbell.baselines import (
+    RAW, _cutoff, _pct, _record_ts, iter_records, to_sample,
+)
 from afterbell.clock import MarketState, evaluate as clock_at
 from afterbell.instruments import REGISTRY
 from afterbell.measure import Book, BookProblem, Side, basis_bps, walk_cost_bps
@@ -85,10 +87,15 @@ class ReferenceIndex:
     prices: dict[str, list[float]] = field(default_factory=dict)
 
     @classmethod
-    def build(cls, raw_dir: Path | None = None) -> "ReferenceIndex":
+    def build(cls, raw_dir: Path | None = None, *,
+              window_days: float | None = None,
+              now: datetime | None = None) -> "ReferenceIndex":
+        cutoff = _cutoff(window_days, now)
         acc: dict[str, list[tuple[datetime, float]]] = defaultdict(list)
         for rec in iter_reference(raw_dir):
             ts = _parse(rec["ts"])
+            if cutoff is not None and ts < cutoff:
+                continue
             derived = rec.get("derived") or {}
             for sym, d in derived.items():
                 if d.get("price") is not None:
@@ -161,6 +168,7 @@ class Calibration:
     walk: dict[str, dict[float, float | None]]
     n_books: int
     n_reference: int
+    window_days: float | None = None
 
     @property
     def rth_ready(self) -> dict[str, int]:
@@ -168,9 +176,14 @@ class Calibration:
                 for sym, st in self.liquidity.items()}
 
 
-def run(raw_dir: Path | None = None, band_pct: float = 1.0) -> Calibration:
-    """One pass over everything recorded so far."""
-    ref = ReferenceIndex.build(raw_dir)
+def run(raw_dir: Path | None = None, band_pct: float = 1.0,
+        *, window_days: float | None = None,
+        now: datetime | None = None) -> Calibration:
+    """Measure the configured rolling window, or all data when explicitly unset."""
+    generated_at = now or datetime.now(timezone.utc)
+    cutoff = _cutoff(window_days, generated_at)
+    ref = ReferenceIndex.build(raw_dir, window_days=window_days,
+                               now=generated_at)
     liq: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
     basis: dict[str, list[float]] = defaultdict(list)
     walk: dict[str, dict[float, list[float]]] = defaultdict(
@@ -180,6 +193,10 @@ def run(raw_dir: Path | None = None, band_pct: float = 1.0) -> Calibration:
     records = (iter_records(raw_dir) if raw_dir is not None
                else iter_records())
     for rec in records:
+        if cutoff is not None:
+            ts = _record_ts(rec)
+            if ts is None or ts < cutoff:
+                continue
         sample = to_sample(rec, band_pct)
         if sample is None:
             continue
@@ -233,10 +250,11 @@ def run(raw_dir: Path | None = None, band_pct: float = 1.0) -> Calibration:
             for size, v in sorted(sizes.items())}
 
     return Calibration(
-        generated_at=datetime.now(timezone.utc), band_pct=band_pct,
+        generated_at=generated_at, band_pct=band_pct,
         liquidity=liquidity, basis=basis_out, walk=walk_out,
         n_books=n_books,
-        n_reference=sum(len(v) for v in ref.times.values()))
+        n_reference=sum(len(v) for v in ref.times.values()),
+        window_days=window_days)
 
 
 # --------------------------------------------------------------------------
@@ -250,9 +268,12 @@ def _n(x: float | None, fmt: str = "{:,.2f}") -> str:
 def render_table(cal: Calibration, min_rth: int = 300) -> str:
     """Markdown for the README. Every number carries its sample count."""
     L: list[str] = []
+    window = ("all recorded data" if cal.window_days is None
+              else f"rolling {cal.window_days:g}-day window")
     L.append(f"Generated {cal.generated_at:%Y-%m-%d %H:%M}Z from "
              f"{cal.n_books:,} measured books and {cal.n_reference:,} "
-             f"reference prints. Depth band ±{cal.band_pct:g}%.")
+             f"reference prints. Depth band ±{cal.band_pct:g}%; "
+             f"baseline window: {window}.")
     L.append("")
     L.append("### Session baselines (P2 denominators)")
     L.append("")
@@ -358,6 +379,8 @@ def main() -> None:
         description="Measure every threshold from recorded data (Part VIII).")
     ap.add_argument("--band-pct", type=float, default=1.0)
     ap.add_argument("--min-rth", type=int, default=300)
+    ap.add_argument("--window-days", type=float, default=7.0,
+                    help="rolling data window for the published report")
     ap.add_argument("--out", default=None,
                     help="write the markdown table to this file")
     ap.add_argument("--propose", default=None,
@@ -365,10 +388,10 @@ def main() -> None:
                          "policy is never edited by this tool (Law 6)")
     a = ap.parse_args()
 
-    cal = run(band_pct=a.band_pct)
+    cal = run(band_pct=a.band_pct, window_days=a.window_days)
     table = render_table(cal, a.min_rth)
     if a.out:
-        Path(a.out).write_text(table + "\n")
+        Path(a.out).write_text(table.rstrip("\n") + "\n")
         print(f"wrote {a.out}")
     else:
         print()
