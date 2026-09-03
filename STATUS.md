@@ -3,6 +3,8 @@
 Updated **2026-09-03 19:44 UTC**. This file separates code that is built from
 external facts that still need an account holder or destination.
 
+For the exact continuation point after the latest audit, read `HANDOFF.md`.
+
 ## Running unattended right now
 
 | process | unit | credential boundary | state |
