@@ -1,6 +1,6 @@
 # AFTERBELL — build status
 
-Updated **2026-09-03 11:15 UTC** (Thursday morning UTC).
+Updated **2026-09-03 11:45 UTC** (Thursday morning UTC).
 
 ## Running unattended right now
 
@@ -29,15 +29,30 @@ has been taken about whether there will be one.
 - Dashboard — `REFERENCE_AGE` permanent, refusals as prominent as passes
 - Agent OS OAuth connector
 - Reference feed on Yahoo — no key, no account, live and recording
+- Calibration pass — all five Part VIII outputs, table published in the README
+- Bell rehearsal — steps a simulated clock through Friday's transition
+- `SKILL.md`, and the four-line adoption shape it advertises now actually runs
 - Adversarial corpus — 35 attacks in nine families, run against both an open
   reference market and the Labor Day weekend
 - Reckless counterparty — a scripted escalation, fourteen turns, no ceiling won
 
-**182 tests, all passing.**
+**198 tests, all passing.**
 
 ## Not built
 
-Rationale layer (LLM narration), executor, calibration pass.
+Rationale layer (LLM narration), executor.
+
+## Filming plan corrected
+
+The demo script has 20:00 UTC Friday flipping `RTH_OPEN` straight to
+`CLOSED_WEEKEND`. Rehearsal shows it does not. 20:00 UTC is 16:00 ET, the
+closing bell, and the state becomes `RTH_POST`; `CLOSED_WEEKEND` arrives four
+hours later at 00:00 UTC Saturday. **Two shots, not one.**
+
+What is real at 20:00 UTC is the better shot anyway: permitted size descends
+1,000 → 927 → 770 → 613 → 457 → 300 across the final five minutes as the
+closing ramp bites, and `REFERENCE_AGE` starts from zero at the bell and
+counts. Rehearse it with `python scripts/rehearse.py`.
 
 ## Found by the corpus
 
