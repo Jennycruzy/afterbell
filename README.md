@@ -85,11 +85,28 @@ off-hours order-book data it collects cannot be back-filled after the fact.
   five pairs, plus the Alpaca reference side. Every fetch failure writes an
   annotated gap marker rather than a fabricated value.
 - **Policy file** (`config/policy.yaml`) — every threshold, checksummed.
+- **Market clock and `REFERENCE_AGE`** (`afterbell/clock.py`) — session state
+  machine over a checked-in 2026 exchange calendar, with 17 tests.
 
 ### Not yet built
 
-Market clock, measurement engine, resolver, guard, ledger, rationale layer,
-executor, dashboard.
+Measurement engine, resolver, guard, ledger, rationale layer, executor,
+dashboard.
+
+### One deliberate deviation from the design spec
+
+The spec's state table defines `CLOSED_WEEKEND` as beginning at Friday 16:00 ET,
+which overlaps its own `RTH_POST` window of 16:00–20:00. Taken literally the two
+disagree, and resolving it by label alone gets the risk backwards: `RTH_POST`
+carries a more permissive factor than `CLOSED_WEEKEND`, so a Friday evening —
+the single most dangerous moment in the week to add exposure — would be sized
+more loosely than a Tuesday evening.
+
+The clock therefore reports the state *and* `seconds_to_next_open` plus an
+`extended_closure_ahead` flag, and P1 sizes on the darkness actually ahead
+rather than on the label. Friday 4 Sep 23:00 UTC and Tuesday 8 Sep 23:00 UTC are
+both `RTH_POST`; the first has 86.5 hours until the next reference print and the
+second has 14.5. Only the second is an ordinary overnight.
 
 ## Reference data
 
