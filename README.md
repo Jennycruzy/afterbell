@@ -112,9 +112,19 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 - **Engine and CLI** (`afterbell/engine.py`) — assembles a context from live
   data, evaluates, and writes the receipt. 85 tests in total.
 
+- **Dashboard** (`afterbell/dashboard.py`) — read-only, unauthenticated,
+  `REFERENCE_AGE` permanent above the fold, refusals styled as prominently as
+  passes, policy checksum and ledger head on every page.
+
 ### Not yet built
 
-Rationale layer, executor, dashboard.
+Rationale layer, executor.
+
+`REFERENCE_AGE` is shown even before a reference price feed is configured: the
+exchange calendar knows when the last regular session ended, so the age is
+derived from it and labelled `source: exchange_calendar`. What the calendar
+cannot supply is the price, so the basis stays blank rather than being
+invented.
 
 ## Using it
 
