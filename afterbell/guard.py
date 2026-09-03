@@ -17,7 +17,7 @@ depth, this passes cleanly and stays out of the way.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
@@ -51,6 +51,24 @@ class OrderRequest:
     query: str = ""
     observed_contract: str | None = None
     audit_verdict: str | None = None
+
+    def at(self, notional: float) -> "OrderRequest":
+        """The same request, resized to what the guard permitted.
+
+        This is the last line of the adoption snippet, so it enforces the one
+        property that snippet depends on: the guard never returns more than was
+        asked for, and a caller cannot use this to ask for more than it did
+        (Law 7). Resizing upward raises rather than quietly obliging.
+        """
+        if notional <= 0:
+            raise ValueError("permitted notional must be positive; a blocked "
+                             "decision has no order to place")
+        if notional > self.notional:
+            raise ValueError(
+                f"cannot resize {self.symbol} upward from {self.notional:,.2f} "
+                f"to {notional:,.2f}; the guard never permits more than was "
+                f"requested and this path must not become the exception")
+        return replace(self, notional=notional)
 
 
 @dataclass

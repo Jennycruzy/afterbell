@@ -240,3 +240,35 @@ def test_every_blocking_gate_is_named_not_just_the_first():
         assert gate in d.rationale
     r = to_receipt(d, req(1000.0))
     assert set(r["blocking_gates"]) == {"P3", "P5", "P6"}
+
+
+# ---------------- the advertised adoption shape ----------------
+#
+# Four lines around an existing agent is the entire distribution claim, so the
+# four lines are tested rather than only written down.
+
+def test_package_exports_the_advertised_names():
+    import afterbell
+    for name in ("Guard", "OrderRequest", "Decision", "Verdict", "Side"):
+        assert hasattr(afterbell, name), name
+
+
+def test_resize_down_to_what_was_permitted():
+    o = OrderRequest("NVDABUSDT", Side.BUY, 5000.0, query="buy Nvidia")
+    assert o.at(300.0).notional == 300.0
+    assert o.at(300.0).symbol == o.symbol
+    assert o.notional == 5000.0          # frozen; the original is untouched
+
+
+def test_resize_upward_is_refused():
+    """The one way the adoption snippet could be turned into a bypass."""
+    o = OrderRequest("NVDABUSDT", Side.BUY, 5000.0)
+    with pytest.raises(ValueError, match="upward"):
+        o.at(9000.0)
+
+
+@pytest.mark.parametrize("bad", [0.0, -1.0])
+def test_resize_to_nothing_is_refused(bad):
+    o = OrderRequest("NVDABUSDT", Side.BUY, 5000.0)
+    with pytest.raises(ValueError, match="positive"):
+        o.at(bad)
