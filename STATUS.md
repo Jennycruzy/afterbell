@@ -33,8 +33,8 @@ certificate renewal. TCP 8100 is not allowed through UFW.
 - Policy loader and monotone P1–P6 guard with signed policy SHA
 - Hash-chained JSONL receipts for decisions and refusals
 - Live public Binance bStocks status and token-audit adapters
-- Optional Alpaca corporate-action lookahead, isolated from Yahoo pricing and
-  strict on malformed/failed responses
+- Binance-native bStocks processing-status checks for P4; current status is
+  never mislabeled as guaranteed corporate-action lookahead
 - Streamable HTTP MCP session client, Codex-managed OAuth connection boundary,
   dynamic order-tool discovery, and redacted execution receipts
 - Optional narration-only adapter; provider text cannot contain measurements or
@@ -54,8 +54,8 @@ certificate renewal. TCP 8100 is not allowed through UFW.
   `AFTERBELL_RUN_LIVE=1`.
 - Yahoo is the active reference provider. Alpaca is not configured here.
 - Integrated live guard evaluation: P1 reduced on the closing ramp, P2/P3/P5/P6
-  pass, and P4 warns as a current-status fallback because Alpaca lookahead is
-  not configured.
+  pass, and P4 warns because Binance current-status verification does not guarantee advance
+  corporate-action notice.
 
 ## Calibration
 
@@ -81,9 +81,6 @@ The calibration command is reproducible and never edits live policy:
 2. A successful OAuth/read probe is not proof of bStocks trading eligibility.
    No real order has been sent. A $5 NVDAB test requires explicit account-holder
    approval and must be performed separately.
-3. If Alpaca P4 lookahead is wanted, copy `.guard.env.example` to a mode-600
-   `.guard.env` and supply the separate read-only corporate-action credentials.
-   This does not switch Yahoo pricing.
 4. HTTPS, Google Drive off-site backup, and external Healthchecks monitoring
    are configured.
 

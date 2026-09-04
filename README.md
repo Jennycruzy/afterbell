@@ -138,9 +138,8 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 
 On this VPS, HTTPS, Google Drive off-site backup, and Healthchecks monitoring
 are configured outside the repository. Binance OAuth is managed by Codex;
-read-only bStocks account eligibility remains account-bound. Alpaca
-corporate-action lookahead remains optional and needs separate credentials in
-`.guard.env`. Yahoo remains the active reference provider.
+read-only bStocks account eligibility remains account-bound. P4 uses Binance bStocks processing status and remains explicit about the lack
+of guaranteed advance corporate-action notice. Yahoo remains the active reference provider.
 
 `REFERENCE_AGE` is shown as the age of the actual recorded regular-session
 reference. If that price is missing, the dashboard says `no reference` and the
@@ -313,9 +312,9 @@ recorded and flagged `EXT`; they are information, not a reference.
 The default provider is **Yahoo**, which needs no key and no account. Alpaca
 remains supported behind `REFERENCE_PROVIDER=alpaca` for anyone who wants the
 reference to come from the firm that clears the shares behind these tokens.
-The P4 corporate-action lookahead is a separate Alpaca client: configuring it
-does not switch the price provider, and the guard service reads only the
-separate `.guard.env` rather than the OAuth `.env`.
+P4 uses Binance bStocks processing status and reported reason messages. A
+clear current state is recorded as partial because Binance does not guarantee
+advance corporate-action notice.
 
 Yahoo is the default for three measured reasons, not for convenience.
 
@@ -486,10 +485,9 @@ what is running, what is built, and what is still open.
   endpoint returned `isSupported=false` and `hasResult=false`, so P6 is
   explicitly registry-only for bStocks. The code supports the authenticated
   skill path when OAuth is completed, but does not claim that result in advance.
-- The P4 Alpaca corporate-action lookahead is implemented and strict, but no
-  Alpaca credentials are installed on this VPS. Until `.guard.env` is supplied,
-  receipts label P4 as a current-status fallback/partial rather than claiming
-  that future announcements were checked. This does not change Yahoo pricing.
+- P4 uses Binance bStocks processing status and reported reason messages.
+  Binance does not guarantee advance corporate-action notice, so receipts
+  label a clear current state as partial rather than claiming a lookahead.
 - **Off-site backup and external alerting are configured.** The backup uses
   non-destructive `rclone copy` to Google Drive, and the watchdog pings the
   configured Healthchecks endpoint. Their credentials remain outside the

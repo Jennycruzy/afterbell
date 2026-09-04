@@ -24,9 +24,6 @@ import httpx
 
 from afterbell import baselines as bl
 from afterbell.clock import evaluate as clock_at
-from afterbell.corporate_actions import (
-    AlpacaCorporateActions, CorporateActionUnavailable,
-)
 from afterbell.guard import (
     Decision, MarketContext, OrderRequest, evaluate as guard_evaluate,
     to_receipt,
@@ -73,7 +70,6 @@ class Guard:
             timeout=httpx.Timeout(15.0, connect=10.0),
             headers={"User-Agent": "afterbell-guard/0.1"})
         self._public_checks = PublicChecks(self._client)
-        self._corporate_actions: AlpacaCorporateActions | None = None
         self._min_samples = (baseline_min_samples
                              if baseline_min_samples is not None
                              else policy.min_rth_samples)
@@ -152,13 +148,12 @@ class Guard:
     def fetch_corporate_state(
             self, inst, exchange_status: str | None = None
             ) -> tuple[str | None, bool, bool, str | None, str]:
-        """Read current bStocks status and, when configured, future actions.
+        """Read Binance bStocks processing status.
 
-        Yahoo remains the reference-price provider. Alpaca is used only for
-        this P4 lookahead because the reference-side corporate-action source
-        is a different data question from the reference price. If Alpaca is
-        not configured, the current Binance status is still exposed as the
-        verified partial fallback rather than mislabeled as a full lookahead.
+        P4 uses Binance's current issuer/venue status and reported reason
+        messages. Binance does not guarantee advance corporate-action notice,
+        so a clear current state remains an explicit partial result rather than
+        a claimed issuer-level lookahead.
         """
         status = None
         status_error = None
@@ -203,32 +198,9 @@ class Guard:
         if current_action:
             return current_action, True, True, source, note
 
-        key = os.environ.get("ALPACA_API_KEY", "").strip()
-        sec = os.environ.get("ALPACA_SECRET_KEY", "").strip()
-        if key and sec:
-            try:
-                if self._corporate_actions is None:
-                    self._corporate_actions = AlpacaCorporateActions(key, sec)
-                events = self._corporate_actions.upcoming(
-                    inst.underlying, datetime.now(timezone.utc),
-                    self.policy.corp_action_lookahead_h)
-            except CorporateActionUnavailable as exc:
-                detail = f"Alpaca corporate-action lookahead failed: {exc}"
-                _gap("alpaca-corporate-actions", inst.underlying, detail)
-                return (None, True, False, source, f"{note}; {detail}")
-            if events:
-                event = events[0]
-                return (event.label, True, True,
-                        f"{source}+alpaca-corporate-actions",
-                        f"{note}; Alpaca found {event.label}")
-            return (None, True, True,
-                    f"{source}+alpaca-corporate-actions",
-                    f"{note}; Alpaca found no action within "
-                    f"{self.policy.corp_action_lookahead_h:.0f}h")
-
         return (None, True, False, source,
-                f"{note}; Alpaca corporate-action lookahead is not configured; "
-                "P4 is a current-status fallback")
+                f"{note}; Binance current processing status is verified, but "
+                "advance corporate-action notice is not guaranteed")
 
     def fetch_token_audit(self, contract: str) -> tuple[str, bool, bool | None, str]:
         """P6 source 2; unsupported bStocks is a valid registry-only result."""
