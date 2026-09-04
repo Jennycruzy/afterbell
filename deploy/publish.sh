@@ -29,12 +29,12 @@ if ! curl -fsS localhost:8100/healthz >/dev/null; then
   exit 1
 fi
 
-sed "s/AFTERBELL_DOMAIN/$DOMAIN/" deploy/nginx-afterbell.conf \
+sed "s/AFTERBELL_DOMAIN/$DOMAIN/g" deploy/nginx-afterbell.conf \
   > /etc/nginx/sites-available/afterbell
 ln -sf /etc/nginx/sites-available/afterbell /etc/nginx/sites-enabled/afterbell
 nginx -t
 systemctl reload nginx
-certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos \
+certbot --nginx -d "$DOMAIN" -d "www.$DOMAIN" --non-interactive --agree-tos \
         --register-unsafely-without-email --redirect
 
 echo
