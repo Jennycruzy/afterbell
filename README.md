@@ -19,9 +19,7 @@ in which these instruments have no primary price-discovery venue behind them,
 and Binance Research measured **~47% of bStocks volume falling outside US market
 hours** in the first fifteen days.
 
-Six of the last ten winners at BNB Chain's OpenClaw hackathon were protective
-agents. Every one of them guards *crypto* risk — malicious contracts, rug
-pulls, liquidation, runaway spend. **None of them can read a market calendar.**
+**At the time of this build, no agent on Binance can read a market calendar.**
 
 AFTERBELL is a deterministic, calendar-aware risk boundary that sits between any
 agent and Binance Spot.
