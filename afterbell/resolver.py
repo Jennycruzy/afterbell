@@ -1,12 +1,12 @@
-"""Instrument resolution and canonical-contract verification (P5, P6).
+"""Instrument resolution and canonical-contract verification (identity and contract verification).
 
-P5 exists because "buy Nvidia" is a category error waiting to happen. The
+The identity check exists because "buy Nvidia" is a category error waiting to happen. The
 request names a company; what is actually purchasable is a certificate issued
 by a Binance affiliate, referencing a share, trading on a venue that never
 closes, against a reference market that is shut most of the week. The guard
 refuses to act until that whole chain is resolved and shown.
 
-P6 exists because bStocks can be withdrawn to self-custody on BNB Chain, so
+The contract-verification check exists because bStocks can be withdrawn to self-custody on BNB Chain, so
 counterfeit BEP-20 tokens carrying these names are inevitable. A contract can
 pass a security audit and still not be the canonical asset. The registry check
 and the audit are independent, and both are required: the demonstrative case is

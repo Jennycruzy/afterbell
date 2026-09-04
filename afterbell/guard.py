@@ -337,7 +337,7 @@ def gate_basis(ctx: MarketContext, pol: Policy) -> GateResult:
     return GateResult("P3", verdict, factor, detail, m)
 
 
-# ----------------------------- P4 -----------------------------
+# --------------------- Corporate-action status ---------------------
 
 def gate_corporate_action(ctx: MarketContext, pol: Policy) -> GateResult:
     status = (ctx.exchange_status or "UNKNOWN").upper()
@@ -373,14 +373,14 @@ def gate_corporate_action(ctx: MarketContext, pol: Policy) -> GateResult:
             measurements["note"] = ctx.corporate_action_note
         return GateResult(
             "P4", Verdict.WARN, 1.0,
-            f"pair status {status} verified; future corporate-action lookahead "
-            "is not configured, so P4 is partial and cannot claim a clean "
-            "lookahead result",
+            f"Binance processing status {status} verified; advance corporate-action "
+            "notice is not guaranteed, so this protection is partial and cannot "
+            "claim a clean lookahead result",
             measurements)
     if ctx.corporate_action_note:
         measurements["note"] = ctx.corporate_action_note
-    return GateResult("P4", Verdict.PASS, 1.0, f"pair status {status}, no "
-                      "reported corporate action in the lookahead window",
+    return GateResult("P4", Verdict.PASS, 1.0, f"Binance processing status {status} verified; no current "
+                      "corporate-action restriction reported",
                       measurements)
 
 

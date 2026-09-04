@@ -1,6 +1,6 @@
 Generated 2026-09-04 17:47Z from 11,950 measured books and 8,120 reference prints. Depth band ±1%; baseline window: rolling 7-day window.
 
-### Session baselines (P2 denominators)
+### Session baselines (liquidity denominators)
 
 | Symbol | State | n | Median half-spread (bps) | Median depth ±1% (USDT) | p95 half-spread | p05 depth |
 |---|---|---:|---:|---:|---:|---:|
@@ -27,7 +27,7 @@ Generated 2026-09-04 17:47Z from 11,950 measured books and 8,120 reference print
 
 **Status: CALIBRATED.** Every symbol has at least 300 RTH_OPEN samples.
 
-### Basis distribution by state (P3 bands)
+### Basis distribution by state (price-disagreement bands)
 
 | State | n | p50 \|basis\| | p75 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
@@ -38,7 +38,7 @@ Generated 2026-09-04 17:47Z from 11,950 measured books and 8,120 reference print
 
 Bands are proposed at empirical percentiles — WATCH at p75, DEGRADED at p95, BROKEN at p99 — rather than at round numbers.
 
-### Walk-cost curve (P2 sizing)
+### Walk-cost curve (liquidity sizing)
 
 | State | n | $100 | $500 | $2,000 | $10,000 |
 |---|---:|---:|---:|---:|---:|

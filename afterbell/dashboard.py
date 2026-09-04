@@ -313,7 +313,7 @@ font-weight:600;letter-spacing:.04em}
 .rc.passed{border-left:3px solid var(--pass)}
 .rt{color:var(--dim);font-size:11px;margin-bottom:6px}
 .rr{color:var(--fg);font-size:12.5px;margin-top:7px;line-height:1.6}
-.gates{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.checks{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 .g{font-size:10.5px;padding:2px 6px;border-radius:3px}
 .foot{color:var(--dim);font-size:11px;margin-top:26px;line-height:1.9;
 word-break:break-all}
@@ -386,12 +386,13 @@ function receipts(d){
  <div class="empty">No decisions recorded yet. Every evaluation &mdash; including every refusal &mdash; is appended here as a hash-chained receipt.</div></div>`;
  const rows=d.receipts.map(r=>{
   const cls=r.decision==='BLOCK'?'blocked':(r.decision==='REDUCE'?'reduced':'passed');
-  const g=Object.entries(r.gates).map(([k,v])=>`<span class="g ${v}">${k} ${v}</span>`).join('');
+  const names={P1:"Market closure",P2:"Liquidity",P3:"Price agreement",P4:"Corporate action",P5:"Instrument identity",P6:"Contract check"};
+  const g=Object.entries(r.gates).map(([k,v])=>`<span class="g ${v}">${names[k] || k} ${v}</span>`).join("");
   return `<div class="rc ${cls}"><div class="rt">#${r.seq} &middot; ${r.ts} &middot; ${r.symbol} &middot; ${r.market_state} &middot; REFERENCE_AGE ${r.reference_age||'none'}</div>
   <span class="tag ${r.decision}">${r.decision}</span>
   &nbsp;requested $${Number(r.requested.notional).toLocaleString()} &rarr; allowed $${Number(r.allowed_notional).toLocaleString()}
   ${r.binding_constraint!=='none'?`&nbsp;&middot;&nbsp;bound by ${r.binding_constraint}`:''}
-  <div class="gates">${g}</div><div class="rr">${r.rationale}</div></div>`;}).join('');
+  <div class="checks">${g}</div><div class="rr">${r.rationale}</div></div>`;}).join('');
  return `<div class="panel"><div class="ph">RECEIPT LEDGER &mdash; refusals shown as prominently as passes</div>${rows}</div>`;}
 async function tick(){
  try{const d=await (await fetch('/api/state')).json();

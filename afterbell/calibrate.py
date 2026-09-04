@@ -275,7 +275,7 @@ def render_table(cal: Calibration, min_rth: int = 300) -> str:
              f"reference prints. Depth band ±{cal.band_pct:g}%; "
              f"baseline window: {window}.")
     L.append("")
-    L.append("### Session baselines (P2 denominators)")
+    L.append("### Session baselines (liquidity denominators)")
     L.append("")
     L.append("| Symbol | State | n | Median half-spread (bps) | Median depth ±1% (USDT) | p95 half-spread | p05 depth |")
     L.append("|---|---|---:|---:|---:|---:|---:|")
@@ -291,7 +291,7 @@ def render_table(cal: Calibration, min_rth: int = 300) -> str:
     ready = cal.rth_ready
     short = {s: n for s, n in ready.items() if n < min_rth}
     if short:
-        L.append(f"**Status: UNCALIBRATED.** P2's denominators are RTH_OPEN "
+        L.append(f"**Status: UNCALIBRATED.** the liquidity check's denominators are RTH_OPEN "
                  f"medians and {len(short)} of {len(ready)} symbols are below "
                  f"the {min_rth}-sample minimum "
                  f"({', '.join(f'{s} {n}' for s, n in sorted(short.items()))}). "
@@ -303,7 +303,7 @@ def render_table(cal: Calibration, min_rth: int = 300) -> str:
                  f"{min_rth} RTH_OPEN samples.")
     L.append("")
 
-    L.append("### Basis distribution by state (P3 bands)")
+    L.append("### Basis distribution by state (price-disagreement bands)")
     L.append("")
     L.append("| State | n | p50 \\|basis\\| | p75 | p95 | p99 |")
     L.append("|---|---:|---:|---:|---:|---:|")
@@ -316,7 +316,7 @@ def render_table(cal: Calibration, min_rth: int = 300) -> str:
              "DEGRADED at p95, BROKEN at p99 — rather than at round numbers.")
     L.append("")
 
-    L.append("### Walk-cost curve (P2 sizing)")
+    L.append("### Walk-cost curve (liquidity sizing)")
     L.append("")
     sizes = " | ".join(f"${s:,.0f}" for s in LADDER_USDT)
     L.append(f"| State | n | {sizes} |")
@@ -346,11 +346,11 @@ def render_table(cal: Calibration, min_rth: int = 300) -> str:
 
 def propose_bands(cal: Calibration,
                   state: str = MarketState.RTH_OPEN.value) -> dict:
-    """P3 bands at measured percentiles, or nothing if the sample is thin.
+    """Price-disagreement bands at measured percentiles, or nothing if the sample is thin.
 
     Deliberately measured on RTH_OPEN only, and this is not a detail.
 
-    P3 asks whether the token and its reference DISAGREE. Off-hours that
+    The price-disagreement check asks whether the token and its reference DISAGREE. Off-hours that
     question cannot be answered from the basis alone, because the reference
     stops updating at the bell while the token keeps trading: the first pass
     over this project's own data showed a median |basis| of 72bps during
@@ -359,7 +359,7 @@ def propose_bands(cal: Calibration,
     discovery rather than the token being wrong.
 
     Calibrating the bands on those samples would bake reference staleness into
-    the definition of disagreement, and then P3 would grade the weekend against
+    the definition of disagreement, and then the price-disagreement check would grade the weekend against
     a yardstick built from the weekend. Staleness already has its own control -
     the DEGRADED floor keyed on reference age - and one risk must not be
     counted twice.
@@ -384,7 +384,7 @@ def main() -> None:
     ap.add_argument("--out", default=None,
                     help="write the markdown table to this file")
     ap.add_argument("--propose", default=None,
-                    help="write proposed P3 bands to this YAML file. The live "
+                    help="write proposed price-disagreement bands to this YAML file. The live "
                          "policy is never edited by this tool (Law 6)")
     a = ap.parse_args()
 

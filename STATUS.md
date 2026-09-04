@@ -11,7 +11,7 @@ For the exact continuation point after the latest audit, read `HANDOFF.md`.
 |---|---|---|---|
 | Recorder | `afterbell-recorder.service` | none; Yahoo reference | active, enabled at boot |
 | Dashboard | `afterbell-dashboard.service` | none | active through HTTPS at `afterbell.site` |
-| Guard | `afterbell-guard.service` | no Binance OAuth; optional separate Alpaca P4 file | active, enabled at boot |
+| Guard | `afterbell-guard.service` | no credentials; public Binance corporate-action status | active, enabled at boot |
 | Watchdog | `afterbell-watchdog.timer` | Healthchecks URL in separate mode-600 file | active, every 5 min |
 | Backup | `afterbell-backup.timer` | Google Drive remote in separate mode-600 file | active, hourly |
 
@@ -30,10 +30,10 @@ certificate renewal. TCP 8100 is not allowed through UFW.
   `exchangeInfo` status, Yahoo regular-session reference data, and gap markers
 - Market clock and `REFERENCE_AGE` over the checked-in 2026 calendar
 - Measurements: spread, ±1% depth, walk cost, basis, RTH-only baselines
-- Policy loader and monotone P1–P6 guard with signed policy SHA
+- Policy loader and monotone six-check safety evaluator with signed policy SHA
 - Hash-chained JSONL receipts for decisions and refusals
 - Live public Binance bStocks status and token-audit adapters
-- Binance-native bStocks processing-status checks for P4; current status is
+- Binance-native corporate-action status checks; current status is
   never mislabeled as guaranteed corporate-action lookahead
 - Streamable HTTP MCP session client, Codex-managed OAuth connection boundary,
   dynamic order-tool discovery, and redacted execution receipts
@@ -48,14 +48,12 @@ certificate renewal. TCP 8100 is not allowed through UFW.
 
 - Binance REST ping and `NVDABUSDT` ticker: passed.
 - Binance public bStocks status for the canonical NVDAB contract: `TRADING`.
-- Public token audit: `isSupported=false`, `hasResult=false`; P6 therefore
+- Public token audit: `isSupported=false`, `hasResult=false`; contract verification
   reports registry-only, not a clean audit.
 - Live public integration test: passed with
   `AFTERBELL_RUN_LIVE=1`.
 - Yahoo is the active reference provider. Alpaca is not configured here.
-- Integrated live guard evaluation: P1 reduced on the closing ramp, P2/P3/P5/P6
-  pass, and P4 warns because Binance current-status verification does not guarantee advance
-  corporate-action notice.
+- Integrated live guard evaluation: market-closure risk reduced on the closing ramp; liquidity, price disagreement, identity, and contract checks passed; **corporate-action status warns because Binance current-status verification does not guarantee advance corporate-action notice**.
 
 ## Calibration
 
@@ -63,7 +61,7 @@ The latest generated table is in `docs/calibration.md` and the README. At
 2026-09-03 19:43 UTC it contained 5,325 measured books, 1,507 reference prints,
 and **374 RTH_OPEN samples per symbol out of 300 required**. All five baseline
 medians are measured and usable inside the declared rolling seven-day window.
-The signed policy remains `status: UNCALIBRATED` because its P1/P2/P3 thresholds
+The signed policy remains `status: UNCALIBRATED` because its market-closure, liquidity, and price-disagreement thresholds
 are still hypotheses; no threshold was silently promoted. Add the weekend and
 holiday observations, then review the proposed values manually before changing
 policy.
@@ -90,7 +88,7 @@ The calibration command is reproducible and never edits live policy:
   control.
 - The authenticated tokenized-securities skill query and bStocks account or
   jurisdiction eligibility are not claimed until OAuth/account testing occurs.
-- The public token audit does not support bStocks, so P6's live fallback is the
+- The public token audit does not support bStocks, so contract verification's live fallback is the
   canonical registry alone.
 - The current box is in AWS eu-west-1 rather than the Tokyo region recommended
   by the build spec. Public REST currently passes, but that is not a guarantee

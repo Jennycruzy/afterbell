@@ -106,7 +106,7 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 
 - **Resolver** (`afterbell/resolver.py`) — full instrument chain plus canonical
   contract verification, refusing rather than guessing.
-- **The guard** (`afterbell/guard.py`) — P1–P6, one sizing function, factors
+- **Safety evaluator** (`afterbell/guard.py`) — six named safety checks, one sizing function, factors
   combined by `min()` and never by product. 84 tests in total.
 
 - **Reference price** (`afterbell/reference.py`) — last regular-session trade,
@@ -117,9 +117,9 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 
 - **Dashboard** (`afterbell/dashboard.py`) — read-only, unauthenticated,
   `REFERENCE_AGE` permanent above the fold, refusals styled as prominently as
-  passes, recorded basis/age chart, calibration table, guard state, policy
+  passes, recorded basis/age chart, calibration table, safety-evaluator state, policy
   checksum and ledger head on every page.
-- **P4/P6 public checks** (`afterbell/public_checks.py`) — live unauthenticated
+- **Corporate-action and contract public checks** (`afterbell/public_checks.py`) — live unauthenticated
   bStocks status and token-audit calls. Unsupported bStocks auditing is exposed
   as an explicit registry-only result, never reported as a clean audit.
 - **Agent OS connection boundary and executor** (`afterbell/mcp.py`,
@@ -138,8 +138,9 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 
 On this VPS, HTTPS, Google Drive off-site backup, and Healthchecks monitoring
 are configured outside the repository. Binance OAuth is managed by Codex;
-read-only bStocks account eligibility remains account-bound. P4 uses Binance bStocks processing status and remains explicit about the lack
-of guaranteed advance corporate-action notice. Yahoo remains the active reference provider.
+read-only bStocks account eligibility remains account-bound. **Corporate-action protection is
+Binance-native:** it checks bStocks processing status and reported reason messages, while
+explicitly not claiming guaranteed advance notice. Yahoo remains the active reference provider.
 
 `REFERENCE_AGE` is shown as the age of the actual recorded regular-session
 reference. If that price is missing, the dashboard says `no reference` and the
@@ -187,7 +188,7 @@ answers rather than one:
 
 | | meaning |
 |---|---|
-| `IGNORED` | the field is consumed but the payload changes nothing — verdict, permitted notional and every gate factor match the control |
+| `IGNORED` | the field is consumed but the payload changes nothing — verdict, permitted notional and every safety-check factor match the control |
 | `REFUSED` | the payload changes a measured input, and a named protection blocking is the correct response |
 | `REJECTED` | the request is malformed and never reaches a protection at all |
 
@@ -220,7 +221,7 @@ Alias matching was on raw substrings, and `"mu"` — Micron — occurs inside a
 great deal of ordinary English. It failed in both directions:
 
 - `"sell my position, I must act before the close"` named no instrument and
-  **resolved to Micron**. P5 would have passed on an asset nobody asked for.
+  **resolved to Micron**. The instrument-identity check would have passed on an asset nobody asked for.
 - `"buy nvidia, I must fill before the close"` read as naming two instruments
   and was refused as ambiguous — a legitimate order blocked.
 
@@ -278,7 +279,7 @@ These books turn out to hold 261–764 levels in total, so the recorder now
 requests `limit=5000` and stores every level (17–41KB per symbol per cycle).
 The correction is large: NVDABUSDT depth within ±1% went from $121k measured at
 20 levels to **$582k** measured against the whole book — a 4.8× understatement
-that would have propagated into every P2 baseline and every liquidity ratio
+that would have propagated into every liquidity baseline and ratio
 derived from one. It was found by computing against recorded data rather than
 trusting the recorder's defaults, which is the entire argument for Law 1.
 
@@ -298,7 +299,7 @@ the single most dangerous moment in the week to add exposure — would be sized
 more loosely than a Tuesday evening.
 
 The clock therefore reports the state *and* `seconds_to_next_open` plus an
-`extended_closure_ahead` flag, and P1 sizes on the darkness actually ahead
+`extended_closure_ahead` flag, and the closure-risk check sizes on the darkness actually ahead
 rather than on the label. Friday 4 Sep 23:00 UTC and Tuesday 8 Sep 23:00 UTC are
 both `RTH_POST`; the first has 86.5 hours until the next reference print and the
 second has 14.5. Only the second is an ordinary overnight.
@@ -312,18 +313,11 @@ recorded and flagged `EXT`; they are information, not a reference.
 The default provider is **Yahoo**, which needs no key and no account. Alpaca
 remains supported behind `REFERENCE_PROVIDER=alpaca` for anyone who wants the
 reference to come from the firm that clears the shares behind these tokens.
-P4 uses Binance bStocks processing status and reported reason messages. A
-clear current state is recorded as partial because Binance does not guarantee
-advance corporate-action notice.
+**Binance-native corporate-action protection.** AFTERBELL uses Binance bStocks processing status and reported reason messages. A clear current state is recorded as partial because Binance does not guarantee advance corporate-action notice.
 
 Yahoo is the default for three measured reasons, not for convenience.
 
-**It holds no credential.** Alpaca issues no read-only key — a credential that
-fetches a price can also place an order, and its rate limits are shared across
-every application using that account. This repository is public and its central
-claim is that nothing in it can trade. A provider needing no credential at all
-is the stronger form of that claim; there is no key here to leak, and none to
-collide with another application's rate limit.
+**It holds no credential.** Yahoo avoids storing any key at all. This repository is public and its central claim is that nothing in it can trade. A provider needing no credential is the strongest form of that claim: there is no key here to leak or to collide with another application's rate limit.
 
 **Its timestamp needs no correction.** `regularMarketTime` is the timestamp of
 the last regular-session print, so it tracks the tape while the session is open
@@ -375,22 +369,22 @@ minimum is not a weaker statistic, it is not a statistic, and it is reported
 recorder has not lived through is named as unobserved rather than estimated
 from the states it has.
 
-**P3's bands are measured on `RTH_OPEN` samples only.** This is not a detail.
-P3 asks whether the token and its reference *disagree*, and off-hours that
+**Price-disagreement bands are measured on `RTH_OPEN` samples only.** This is not a detail.
+The price-disagreement check asks whether the token and its reference *disagree*, and off-hours that
 question cannot be answered from the basis, because the reference freezes at
 the bell while the token keeps trading. The first pass over this project's own
 data measured a median |basis| of **71.9bps during `RTH_PRE`** against a
 reference already fifteen hours old — almost all of it the underlying having
 moved overnight, which is honest price discovery rather than the token being
 wrong. Calibrating on those samples would bake reference staleness into the
-definition of disagreement, and P3 would then grade the weekend against a
+definition of disagreement, and the price-disagreement check would then grade the weekend against a
 yardstick built from the weekend. Staleness already has its own control, the
 DEGRADED floor keyed on reference age, and one risk must not be counted twice.
 
 <!-- CALIBRATION TABLE START -->
 Generated 2026-09-03 19:43Z from 5,325 measured books and 1,507 reference prints. Depth band ±1%; baseline window: rolling 7-day window.
 
-### Session baselines (P2 denominators)
+### Session baselines (liquidity denominators)
 
 | Symbol | State | n | Median half-spread (bps) | Median depth ±1% (USDT) | p95 half-spread | p05 depth |
 |---|---|---:|---:|---:|---:|---:|
@@ -412,7 +406,7 @@ Generated 2026-09-03 19:43Z from 5,325 measured books and 1,507 reference prints
 
 **Status: CALIBRATED.** Every symbol has at least 300 RTH_OPEN samples.
 
-### Basis distribution by state (P3 bands)
+### Basis distribution by state (price-disagreement bands)
 
 | State | n | p50 \|basis\| | p75 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
@@ -421,7 +415,7 @@ Generated 2026-09-03 19:43Z from 5,325 measured books and 1,507 reference prints
 
 Bands are proposed at empirical percentiles — WATCH at p75, DEGRADED at p95, BROKEN at p99 — rather than at round numbers.
 
-### Walk-cost curve (P2 sizing)
+### Walk-cost curve (liquidity sizing)
 
 | State | n | $100 | $500 | $2,000 | $10,000 |
 |---|---:|---:|---:|---:|---:|
@@ -482,12 +476,10 @@ what is running, what is built, and what is still open.
 - The authenticated `binance-tokenized-securities-info` skill query is still
   account-bound and pending. The unauthenticated bStocks status endpoint was
   live-verified for NVDAB on 2026-09-03 as `TRADING`; the public token-audit
-  endpoint returned `isSupported=false` and `hasResult=false`, so P6 is
+  endpoint returned `isSupported=false` and `hasResult=false`, so contract verification is
   explicitly registry-only for bStocks. The code supports the authenticated
   skill path when OAuth is completed, but does not claim that result in advance.
-- P4 uses Binance bStocks processing status and reported reason messages.
-  Binance does not guarantee advance corporate-action notice, so receipts
-  label a clear current state as partial rather than claiming a lookahead.
+- **Corporate-action protection is Binance-native.** It uses bStocks processing status and reported reason messages, not Alpaca credentials. Binance does not guarantee advance notice, so receipts label a clear current state as partial rather than claiming a lookahead.
 - **Off-site backup and external alerting are configured.** The backup uses
   non-destructive `rclone copy` to Google Drive, and the watchdog pings the
   configured Healthchecks endpoint. Their credentials remain outside the

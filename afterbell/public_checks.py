@@ -1,4 +1,4 @@
-"""Unauthenticated Binance checks used by P4 and P6.
+"""Unauthenticated Binance corporate-action and contract checks.
 
 The published Binance skills are wrappers around public endpoints. Keeping the
 HTTP calls here makes the live path auditable and lets the guard record the

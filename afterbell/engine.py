@@ -150,7 +150,7 @@ class Guard:
             ) -> tuple[str | None, bool, bool, str | None, str]:
         """Read Binance bStocks processing status.
 
-        P4 uses Binance's current issuer/venue status and reported reason
+        Corporate-action protection uses Binance's current issuer/venue status and reported reason
         messages. Binance does not guarantee advance corporate-action notice,
         so a clear current state remains an explicit partial result rather than
         a claimed issuer-level lookahead.
@@ -193,7 +193,7 @@ class Guard:
             note = (f"bStocks status endpoint: openState={status.open_state}, "
                     f"reasonCode={status.reason_code}; current status verified")
 
-        # A current halt/pause is already a hard P4 result. It does not need a
+        # A current halt/pause is already a hard corporate-action result. It does not need a
         # second source before the guard refuses the order.
         if current_action:
             return current_action, True, True, source, note
@@ -203,7 +203,7 @@ class Guard:
                 "advance corporate-action notice is not guaranteed")
 
     def fetch_token_audit(self, contract: str) -> tuple[str, bool, bool | None, str]:
-        """P6 source 2; unsupported bStocks is a valid registry-only result."""
+        """Contract-verification source; unsupported bStocks is registry-only."""
         try:
             audit = self._public_checks.token_audit(contract)
         except PublicCheckUnavailable as exc:

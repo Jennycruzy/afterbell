@@ -22,7 +22,7 @@ calibration:
   # Populated by the calibration pass. Empty means: nothing measured yet.
   measured: {}
 
-# P1 - reference-market gap risk. Ramp is calibrated against measured weekend
+# Reference-market closure risk. Ramp is calibrated against measured weekend
 # realised volatility from our own recorder before it is trusted.
 #
 # Three ladders combine by min(), never by product:
@@ -68,18 +68,18 @@ clock:
   # the coming close leads into a weekend or a holiday.
   ramp_floor: 0.25
 
-# P2 - off-hours liquidity. Ratios are against a rolling median computed over
+# Off-hours liquidity. Ratios are against a rolling median computed over
 # RTH_OPEN samples ONLY. These denominators cannot be back-filled.
 liquidity:
   depth_band_pct: 1.0
-  walk_cost_cap_bps: 100.0    # hard gate, overrides every other factor
+  walk_cost_cap_bps: 100.0    # hard stop, overrides every other factor
   tiers:
     - {max_spread_ratio: 1.5, min_liquidity_ratio: 0.70, factor: 1.00}
     - {max_spread_ratio: 3.0, min_liquidity_ratio: 0.40, factor: 0.50}
     - {max_spread_ratio: 6.0, min_liquidity_ratio: 0.15, factor: 0.20}
   otherwise_factor: 0.00      # BLOCK
 
-# P3 - basis drift. Bands become empirical percentiles (WATCH p75,
+# Price disagreement. Bands become empirical percentiles (WATCH p75,
 # DEGRADED p95, BROKEN p99) once the distribution by market state exists.
 basis:
   bands:
@@ -90,7 +90,8 @@ basis:
   degraded_floor_reference_age_s: 172800          # 48h
   max_reference_age_s: 432000                     # 120h -> BLOCK (Law 3)
 
-# P4 - corporate actions.
+# Corporate-action status — Binance bStocks processing status and reason messages.
+# Binance does not guarantee an advance corporate-action feed; current status is partial.
 corporate_actions:
   lookahead_hours: 24
   # An allowlist, not a blocklist. Binance publishes statuses this project has
@@ -98,7 +99,7 @@ corporate_actions:
   # pass. Only an explicitly tradable pair trades.
   tradable_statuses: [TRADING]
 
-# P6 - canonical contract. Registry is compiled in and checksummed at load;
+# Canonical contract verification. Registry is compiled in and checksummed at load;
 # a mismatch is a BLOCK with no override path.
 registry_sha256: b4ee770b92b077e1ff77d6dbf527400f435cd10eca27dbe936ab4b56b6746f1b
 

@@ -143,7 +143,7 @@ class Recorder:
             return None
 
     def exchange_status(self, dt: datetime) -> dict[str, str]:
-        """P4 source 2: authoritative trading status per pair."""
+        """Corporate-action source: authoritative trading status per pair."""
         # httpx URL-encodes params; pre-quoting here double-encodes and
         # Binance rejects it with -1100.
         syms = json.dumps(TOKEN_SYMBOLS, separators=(",", ":"))

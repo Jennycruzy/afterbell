@@ -67,23 +67,23 @@ python -m afterbell.engine --symbol NVDABUSDT --notional 5000 --query "buy Nvidi
   TOKEN MARKET  OPEN            REFERENCE MARKET  CLOSED_WEEKEND
                                 REFERENCE_AGE     16:00:00
 
-    P1  REDUCE  f=0.060  reference market CLOSED_WEEKEND; 73.5h until the next regular print (extended closure)
-    P2  BLOCK   f=0.000  no calibrated RTH baseline for this symbol (0 samples, 300 required)
-    P3  PASS    f=1.000  token -3bps against a reference 16:00:00 old [NOMINAL]
-    P4  WARN    f=1.000  pair status TRADING verified; future corporate-action lookahead is partial
-    P5  PASS    f=1.000  NVDAB resolved to NVDA via BTech Holdings Limited
-    P6  PASS    f=1.000  venue-internal spot pair; canonical registry applies
+    Market closure  REDUCE  f=0.060  reference market CLOSED_WEEKEND; 73.5h until the next regular print (extended closure)
+    Liquidity       BLOCK   f=0.000  no calibrated RTH baseline for this symbol (0 samples, 300 required)
+    Price agreement PASS    f=1.000  token -3bps against a reference 16:00:00 old [NOMINAL]
+    Corporate action WARN    f=1.000  Binance processing status TRADING verified; advance notice is not guaranteed
+    Instrument ID    PASS    f=1.000  NVDAB resolved to NVDA via BTech Holdings Limited
+    Contract check   PASS    f=1.000  venue-internal spot pair; canonical registry applies
 
   DECISION  BLOCK     requested 5,000 -> allowed 0 USDT
-  BINDING   P1,P2
+  BINDING   market closure, liquidity
 ```
 
 This is the output shape for a Saturday evaluation before the RTH baseline has
-reached its required sample count. P2 blocks until that denominator is measured.
+reached its required sample count. The liquidity check blocks until that denominator is measured.
 Note that the two clock numbers are
 different measurements and are not interchangeable: `REFERENCE_AGE` 16:00:00 is
 how stale the last print already is, while 73.5h is how long until the next
-one. P1 takes the worse of them. Here the darkness *ahead* binds, because Labor
+one. The market-closure check takes the worse of them. Here the darkness *ahead* binds, because Labor
 Day falls on the Monday.
 
 `decision.allowed_notional` is the number to act on. `decision.rationale` is the
@@ -94,12 +94,12 @@ hash-chained receipt carrying the policy checksum that produced it.
 
 | | Asks |
 |---|---|
-| **P1** | How long has the reference market been shut, and how long until it reopens? |
-| **P2** | How does this book compare to its *own* regular-hours median spread and depth? |
-| **P3** | Do the token and its reference disagree, and how old is the reference? |
-| **P4** | Is the pair actually tradable, and is a corporate action due? |
-| **P5** | What is this, exactly — issuer, instrument class, network, underlying? |
-| **P6** | Is this contract address the canonical one? |
+| **Market closure** | How long has the reference market been shut, and how long until it reopens? |
+| **Liquidity** | How does this book compare to its *own* regular-hours median spread and depth? |
+| **Price agreement** | Do the token and its reference disagree, and how old is the reference? |
+| **Corporate-action status** | Does Binance report a processing restriction or corporate-action message? |
+| **Instrument identity** | What is this, exactly — issuer, instrument class, network, underlying? |
+| **Contract verification** | Is this contract address the canonical one? |
 
 Factors combine by `min()`, never by product. Multiplying them would invent a
 precision the measurements do not have, and would let three merely-cautious
@@ -107,7 +107,7 @@ signals compound into a block no single measurement supports.
 
 ## What it cannot do
 
-- **The guard cannot place, amend or cancel an order.** Its entire output space
+- **The guard cannot place, amend or cancel an order.** Its result space
   is PASS, WARN, REDUCE, BLOCK plus a permitted notional never larger than the
   request. The action space is provably risk-reducing, which is what makes it
   safe to grant autonomy to. A separate module, `afterbell.executor`, can place
@@ -140,10 +140,13 @@ publishes the table with a sample count beside every number, and reports
 `UNCALIBRATED` rather than printing a statistic it lacks the samples for.
 
 Yahoo is the default reference-price provider and needs no credential. Alpaca
-can be selected for reference prices with `REFERENCE_PROVIDER=alpaca`, and its
-separate read-only corporate-action client powers P4 lookahead when credentials
-are supplied to the guard service. Alpaca is never silently substituted for
-Yahoo, and the recorder still holds no Binance or Alpaca credential.
+can be selected for reference prices with `REFERENCE_PROVIDER=alpaca`, but it
+does **not** power corporate-action protection. **Corporate-action protection is
+Binance-native:** it checks public bStocks processing status and reason messages,
+blocks a reported restriction, and marks a clear current status as partial
+because Binance does not guarantee advance notice. Alpaca is never silently
+substituted for Yahoo, and the recorder and safety evaluator hold no Binance or
+Alpaca credential.
 
 ## Status and honesty
 
@@ -151,8 +154,7 @@ Yahoo, and the recorder still holds no Binance or Alpaca credential.
 - The instrument registry covers the five launch bStocks only.
 - Binance's public bStocks status path is live-checked; an unsupported public
   token audit is recorded as registry-only rather than as a clean audit.
-- The optional Alpaca corporate-action lookahead is strict: a malformed or
-  failed response is a gap, while a returned event blocks the new entry.
+- **Corporate-action protection is a Binance-native current-status check, not an Alpaca lookahead.** A reported processing restriction blocks a new entry. Because Binance does not guarantee advance notice, a clear status remains explicit partial protection rather than a future-event clearance.
 - Adversarial payloads used to test this skill are synthetic, self-contained,
   and never published anywhere a third party's agent could encounter them.
 - bStocks are **Certificates representing Financial Instruments** (para 92,
