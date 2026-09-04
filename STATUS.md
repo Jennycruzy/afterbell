@@ -13,7 +13,7 @@ For the exact continuation point after the latest audit, read `HANDOFF.md`.
 | Dashboard | `afterbell-dashboard.service` | none | active through HTTPS at `afterbell.site` |
 | Guard | `afterbell-guard.service` | no Binance OAuth; optional separate Alpaca P4 file | active, enabled at boot |
 | Watchdog | `afterbell-watchdog.timer` | Healthchecks URL in separate mode-600 file | active, every 5 min |
-| Backup | `afterbell-backup.timer` | optional rclone remote | active, hourly; records a gap until configured |
+| Backup | `afterbell-backup.timer` | Google Drive remote in separate mode-600 file | active, hourly |
 
 The recorder, dashboard and guard never load `.env`, so an Agent OS OAuth token
 cannot stop or enter the market-data process. The executor is never invoked by
@@ -84,8 +84,8 @@ The calibration command is reproducible and never edits live policy:
 3. If Alpaca P4 lookahead is wanted, copy `.guard.env.example` to a mode-600
    `.guard.env` and supply the separate read-only corporate-action credentials.
    This does not switch Yahoo pricing.
-4. Supply an external rclone destination to close the backup gap. HTTPS and
-   external Healthchecks monitoring are configured.
+4. HTTPS, Google Drive off-site backup, and external Healthchecks monitoring
+   are configured.
 
 ## Known limitations
 
@@ -98,7 +98,6 @@ The calibration command is reproducible and never edits live policy:
 - The current box is in AWS eu-west-1 rather than the Tokyo region recommended
   by the build spec. Public REST currently passes, but that is not a guarantee
   for future Binance or Agent OS access.
-- Off-site backup still needs an operator-supplied rclone destination.
 - This is a technical demonstration, not investment advice, an offer, a
   solicitation, or a claim of direct ownership of underlying shares.
 

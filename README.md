@@ -122,10 +122,11 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 - **P4/P6 public checks** (`afterbell/public_checks.py`) — live unauthenticated
   bStocks status and token-audit calls. Unsupported bStocks auditing is exposed
   as an explicit registry-only result, never reported as a clean audit.
-- **Agent OS connector and executor** (`afterbell/mcp.py`,
-  `scripts/connect_binance.py`, `afterbell/executor.py`) — real Streamable HTTP
-  session handling, OAuth PKCE, redacted execution receipts and monotone
-  execution ceilings. Execution remains disabled by the shipped policy.
+- **Agent OS connection boundary and executor** (`afterbell/mcp.py`,
+  `scripts/connect_binance.py`, `afterbell/executor.py`) — supported
+  Codex-managed OAuth, Streamable HTTP session handling, redacted execution
+  receipts and monotone execution ceilings. Execution remains disabled by the
+  shipped policy.
 - **Narration adapter** (`afterbell/rationale.py`) — optional
   OpenAI-compatible prose around the deterministic rationale. Provider text is
   rejected if it contains digits or measurements, and can never enter sizing.
@@ -135,12 +136,11 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 
 ### Operator configuration still required
 
-These paths are built, but the external fact or destination is intentionally
-not fabricated: authenticated Agent OS OAuth and bStocks account eligibility
-need the account holder; Alpaca corporate-action lookahead needs separate
-credentials in `.guard.env`; a public HTTPS hostname needs DNS; and off-site
-backup/phone alerting need destinations. Yahoo remains the active reference
-provider on the default VPS path.
+On this VPS, HTTPS, Google Drive off-site backup, and Healthchecks monitoring
+are configured outside the repository. Binance OAuth is managed by Codex;
+read-only bStocks account eligibility remains account-bound. Alpaca
+corporate-action lookahead remains optional and needs separate credentials in
+`.guard.env`. Yahoo remains the active reference provider.
 
 `REFERENCE_AGE` is shown as the age of the actual recorded regular-session
 reference. If that price is missing, the dashboard says `no reference` and the
@@ -490,10 +490,10 @@ what is running, what is built, and what is still open.
   Alpaca credentials are installed on this VPS. Until `.guard.env` is supplied,
   receipts label P4 as a current-status fallback/partial rather than claiming
   that future announcements were checked. This does not change Yahoo pricing.
-- **Off-site backup and external alerting are wired but not configured.** The
-  backup uses non-destructive `rclone copy` and excludes the OAuth pending file;
-  the watchdog records a local gap until a remote and healthcheck URL are
-  supplied. The Friday-to-Tuesday window still needs that second destination.
+- **Off-site backup and external alerting are configured.** The backup uses
+  non-destructive `rclone copy` to Google Drive, and the watchdog pings the
+  configured Healthchecks endpoint. Their credentials remain outside the
+  repository.
 - **One module can place an order, and it ships disabled.** `afterbell.executor`
   is the only code here that can trade. It is not importable from the package
   root — `from afterbell import Guard` still reaches nothing that can place an
