@@ -9,7 +9,7 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/afterbell
 Environment=PYTHONUNBUFFERED=1
 # Read-only dashboard; nginx/domain TLS may proxy this same port.
-ExecStart=/home/ubuntu/afterbell/.venv/bin/python -m afterbell.dashboard --host 0.0.0.0 --port 8100
+ExecStart=/home/ubuntu/afterbell/.venv/bin/python -m afterbell.dashboard --host 127.0.0.1 --port 8100
 Restart=always
 RestartSec=10
 NoNewPrivileges=true

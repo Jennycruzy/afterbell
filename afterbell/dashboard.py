@@ -420,13 +420,21 @@ setInterval(()=>{const el=document.getElementById('age');
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def _send(self, code: int, body: bytes, ctype: str) -> None:
+    def _send(self, code: int, body: bytes, ctype: str, *, write_body: bool = True) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        if write_body:
+            self.wfile.write(body)
+
+    def do_HEAD(self) -> None:
+        if self.path == "/healthz":
+            return self._send(200, b"ok", "text/plain", write_body=False)
+        if self.path in ("/", "/index.html"):
+            return self._send(200, PAGE.encode(), "text/html; charset=utf-8", write_body=False)
+        self._send(404, b"not found", "text/plain", write_body=False)
 
     def do_GET(self) -> None:
         try:
