@@ -214,7 +214,7 @@ def execute(p: ExecutionPlan, *, decision_hash: str | None = None,
     if live:
         if not token:
             raise ExecutionRefused(
-                "no BINANCE_ACCESS_TOKEN; run scripts/connect_binance.py")
+                "no BINANCE_ACCESS_TOKEN; the supported Codex-managed OAuth connection intentionally does not expose its token to AFTERBELL, and this executor remains disabled by policy")
         try:
             response = _mcp_place_order(
                 token, {"symbol": p.symbol, "side": p.side,

@@ -439,16 +439,19 @@ Median cost in bps to fill a marketable buy of each size against the recorded bo
 
 ## Connecting to Binance Agent OS
 
-The Agentic sub-account is not created by hand. It is provisioned by completing
-an OAuth 2.1 authorization-code + PKCE flow:
+Binance Agent OS must be connected through a Binance-supported AI client. This
+deployment uses Codex's Streamable HTTP MCP integration:
 
 ```
-python scripts/connect_binance.py          # or --manual on a headless box
+codex mcp add binance-agent-os --url https://agent.binance.com/mcp/agentic
+codex mcp login binance-agent-os
 ```
 
-Run it on the machine whose browser you log in with; the redirect lands on
-`127.0.0.1:8765`. The token is written to `.env` (gitignored, `chmod 600`) and
-never appears in a log, a receipt or a frame of the demo.
+Complete the browser authorization presented by Codex and grant only the
+read-only Account scope (and Market Data if required). Codex manages the OAuth
+token; AFTERBELL never writes it to `.env`, logs it, or passes it to the
+recorder, guard, dashboard, or any service. `python scripts/connect_binance.py`
+is now a read-only connection-status check.
 
 _Measured correction to the design spec:_ the spec states that Agent OS market
 data requires no auth. That holds for `api.binance.com`, the public REST API
@@ -458,9 +461,10 @@ this project's recorder and measurement path use, but **not** for
 interaction needs OAuth, reads included. Nothing in the recorder or the guard
 depends on it, which is the point of keeping them on the unauthenticated path.
 
-There is no dynamic client registration endpoint, but the authorization server
-advertises `client_id_metadata_document_supported`, so `client_id` is the URL of
-`oauth/client.json` in this repository.
+The standalone PKCE client formerly shipped with this repository is not used:
+Binance rejects it as an unsupported agent. The executor remains disabled and
+does not receive Codex's OAuth credential; any future execution design must
+remain within the supported MCP client boundary.
 
 ## Operations
 

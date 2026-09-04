@@ -1,6 +1,6 @@
 # AFTERBELL — build status
 
-Updated **2026-09-03 19:44 UTC**. This file separates code that is built from
+Updated **2026-09-04 11:36 UTC**. This file separates code that is built from
 external facts that still need an account holder or destination.
 
 For the exact continuation point after the latest audit, read `HANDOFF.md`.
@@ -36,8 +36,8 @@ nginx sites were not changed.
 - Live public Binance bStocks status and token-audit adapters
 - Optional Alpaca corporate-action lookahead, isolated from Yahoo pricing and
   strict on malformed/failed responses
-- Streamable HTTP MCP session client, OAuth PKCE connector, read-only account
-  probe, dynamic order-tool discovery, and redacted execution receipts
+- Streamable HTTP MCP session client, Codex-managed OAuth connection boundary,
+  dynamic order-tool discovery, and redacted execution receipts
 - Optional narration-only adapter; provider text cannot contain measurements or
   enter the decision
 - Dashboard with recorded basis/age chart, calibration table, guard state,
@@ -76,9 +76,9 @@ The calibration command is reproducible and never edits live policy:
 ```
 ## Account-bound validation still pending
 
-1. Run `python scripts/connect_binance.py --url-only`, complete OAuth in the
-   account holder's browser, and run `--finish` with the complete redirect URL.
-   The connector lists tools and calls only read-only account/product probes.
+1. Binance Agent OS is authenticated through the supported Codex MCP client;
+   `python scripts/connect_binance.py` confirms configuration without reading
+   Codex credentials. Run account/product checks through that MCP client.
 2. A successful OAuth/read probe is not proof of bStocks trading eligibility.
    No real order has been sent. A $5 NVDAB test requires explicit account-holder
    approval and must be performed separately.
