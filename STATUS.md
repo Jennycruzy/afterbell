@@ -1,6 +1,6 @@
 # AFTERBELL — build status
 
-Updated **2026-09-04 11:36 UTC**. This file separates code that is built from
+Updated **2026-09-05 13:50 UTC**. This file separates code that is built from
 external facts that still need an account holder or destination.
 
 For the exact continuation point after the latest audit, read `HANDOFF.md`.
@@ -58,13 +58,22 @@ certificate renewal. TCP 8100 is not allowed through UFW.
 ## Calibration
 
 The latest generated table is in `docs/calibration.md` and the README. At
-2026-09-03 19:43 UTC it contained 5,325 measured books, 1,507 reference prints,
-and **374 RTH_OPEN samples per symbol out of 300 required**. All five baseline
-medians are measured and usable inside the declared rolling seven-day window.
+2026-09-05 13:50 UTC it contained 17,965 measured books, 14,135 reference prints,
+**781 RTH_OPEN samples per symbol out of 300 required**, and a first full weekend
+closure at **827 CLOSED_WEEKEND samples per symbol**. All five baseline medians
+are measured and usable inside the declared rolling seven-day window.
+
+Basis is now measured across five market states rather than three. Regular
+trading disagreement is far tighter than the live bands assume — RTH_OPEN
+p75/p95/p99 at 7.1/12.6/33.9 bps against live WATCH/DEGRADED/BROKEN bands of
+100/250/500 bps — while `RTH_PRE` is the widest state at a p99 of 537.6 bps.
+That spread between states is the argument for keeping the bands measured
+rather than round.
+
 The signed policy remains `status: UNCALIBRATED` because its market-closure, liquidity, and price-disagreement thresholds
-are still hypotheses; no threshold was silently promoted. Add the weekend and
-holiday observations, then review the proposed values manually before changing
-policy.
+are still hypotheses; no threshold was silently promoted. `CLOSED_HOLIDAY` is
+the one state never yet observed; it records on Labor Day, 2026-09-07. Add that
+observation, then review the proposed values manually before changing policy.
 
 The calibration command is reproducible and never edits live policy:
 
@@ -98,7 +107,8 @@ The calibration command is reproducible and never edits live policy:
 
 ## Next automatic milestones
 
-- Keep the recorder running through the Friday bell, Labor Day closure, and the
-  Tuesday reopen; those states cannot be back-filled.
-- Re-run calibration after the weekend, inspect proposed policy values manually,
+- The Friday bell and the weekend closure are recorded. Keep the recorder
+  running through the Labor Day closure and the Tuesday reopen; those states
+  cannot be back-filled.
+- Re-run calibration after Labor Day, inspect proposed policy values manually,
   and only then decide whether the policy can be marked calibrated.
