@@ -50,7 +50,17 @@ INTERVAL_S = 60
 # books hold 261-764 levels in total, so limit=5000 returns every one of them
 # (17-41KB/symbol). Weight 250/call * 5 symbols = 1250/min against a 6000 budget.
 DEPTH_LEVELS = 5000
-TRADE_LIMIT = 50
+# The same mistake as the 20-level depth truncation above, in a second place,
+# and it survived the first fix because only the depth call was re-examined.
+# At limit=50 a batch of SNDKBUSDT trades spanned 7.2s of a 60s cycle, so ~88%
+# of that minute's prints were never seen, and the ones missed were the ones in
+# bursts. Measured 2026-09-05: /api/v3/trades costs weight 25 per call at ANY
+# limit up to 1000 - 50, 500 and 1000 each added exactly 25 to the running
+# total - so the small request bought nothing. At limit=1000 every symbol's
+# batch spans longer than the cycle that fetched it (159s on the busiest,
+# SNDKBUSDT), which means consecutive batches overlap and the tape is complete.
+# Costs 697KB/cycle across five symbols, ~1.0GB/day, against 40GB free.
+TRADE_LIMIT = 1000
 TIMEOUT = httpx.Timeout(15.0, connect=10.0)
 
 _RESTRICTED = "restricted location"

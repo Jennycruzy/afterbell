@@ -29,6 +29,14 @@ truncation rather than the market is the failure this module is written to
 avoid; it is the same mistake as recording 20 depth levels and reporting the
 ladder's end as the market's depth.
 
+**The limit was ours, not Binance's.** `TRADE_LIMIT` was 50 until 2026-09-05
+14:43 UTC, when it was raised to 1000 after measuring that `/api/v3/trades`
+costs the same weight at any limit up to 1000. Coverage below therefore spans
+two regimes and the table says which: records before that point captured 33.5%
+to 77.9% of prints, and records after it capture the whole tape with overlap.
+The share is computed from trade ids rather than assumed, so it stays correct
+across the change without anyone having to remember it happened.
+
 **The second trap, found the same way.** A first pass reported 45-75% of trades
 arriving within 200ms of the previous one, which would be a startling amount of
 automation. 36.6% of those gaps were exactly **0ms**: one aggressive order

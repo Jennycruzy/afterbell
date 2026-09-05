@@ -216,7 +216,7 @@ def render(adv: AdversarialSummary, led: LedgerSummary, *,
          f"{sum(led.refused_by_state.values()):,}"),
         ("Operator freeze refusals", f"{led.freeze_refusals:,}"),
         ("Silent failures found by this project's own tooling and fixed",
-         "5"),
+         "6"),
     ]
     if books is not None and prints is not None:
         rows.append(("Order books recorded / reference prints measured",
