@@ -486,6 +486,43 @@ Median cost in bps to fill a marketable buy of each size against the recorded bo
 **Not yet observed:** CLOSED_HOLIDAY. These rows appear once the recorder has lived through them; they are not estimated from the states that were.
 <!-- CALIBRATION TABLE END -->
 
+## Try it against your own client
+
+AFTERBELL serves MCP as well as consuming it. Point any MCP client at:
+
+```
+https://afterbell.site/mcp
+```
+
+Two tools, both read-only, no authentication and no credential:
+
+| Tool | Answers |
+|---|---|
+| `evaluate_order(symbol, side, notional, query)` | the full decision: verdict, permitted size, binding constraint, and every measurement behind it |
+| `get_market_state(symbol)` | market state, `REFERENCE_AGE`, basis, spread and depth against this symbol's own RTH medians |
+
+Ask it for $5,000 of NVDAB on a Saturday and it will refuse in your session,
+for reasons it can show you:
+
+```bash
+curl -s -X POST https://afterbell.site/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+        "name":"evaluate_order",
+        "arguments":{"symbol":"NVDABUSDT","side":"BUY","notional":5000,
+                     "query":"buy Nvidia"}}}'
+```
+
+This is the point of serving the protocol rather than only speaking it. An
+agent can hold a connection to Binance's MCP server and this one at the same
+time, and has to ask permission before it acts. There is no tool here that
+places an order, because there is no credential here for one to use.
+
+Evaluations arriving over MCP are receipted like every other evaluation and
+tagged with their source, so a decision you trigger from your own client
+appears in the same hash-chained ledger as the rest, and the response tells you
+its sequence number and hash.
+
 ## Connecting to Binance Agent OS
 
 Binance Agent OS must be connected through a Binance-supported AI client. This

@@ -1,0 +1,23 @@
+[Unit]
+Description=AFTERBELL read-only MCP server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/afterbell
+Environment=PYTHONUNBUFFERED=1
+# Loopback only; nginx terminates TLS and is the sole public entrypoint.
+# This unit loads no credential file: the MCP surface is read-only by
+# construction and there is nothing here for a token to unlock.
+ExecStart=/home/ubuntu/afterbell/.venv/bin/python -m afterbell.mcp_server --host 127.0.0.1 --port 8200
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/ubuntu/afterbell/data
+
+[Install]
+WantedBy=multi-user.target
