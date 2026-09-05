@@ -37,6 +37,25 @@ for unit in afterbell-recorder afterbell-dashboard afterbell-guard; do
   fi
 done
 
+# Operator freeze transitions. The freeze itself is enforced in the guard and
+# receipted in the ledger; this reports the edge, so engaging or releasing it
+# from an SSH session is visible without reading the ledger.
+FREEZE=$(sed -n 's/^ *kill_file: *//p' /home/ubuntu/afterbell/config/policy.yaml | head -1)
+SEEN=/home/ubuntu/afterbell/data/.freeze_seen
+now=absent
+[ -n "$FREEZE" ] && [ -e "$FREEZE" ] && now=present
+was=$(cat "$SEEN" 2>/dev/null || echo absent)
+if [ "$now" != "$was" ]; then
+  echo "$now" > "$SEEN"
+  if [ "$now" = present ]; then
+    echo "$(ts) FREEZE ENGAGED: $FREEZE present; all authorizations refused" >> "$LOG"
+    "$HEALTH" fail "AFTERBELL operator freeze ENGAGED; every authorization is refused"
+  else
+    echo "$(ts) FREEZE RELEASED: $FREEZE removed" >> "$LOG"
+    "$HEALTH" ok "AFTERBELL operator freeze RELEASED"
+  fi
+fi
+
 pct=$(df --output=pcent /home/ubuntu | tail -1 | tr -dc '0-9')
 if [ "${pct:-0}" -ge "$DISK_PCT_ALERT" ]; then
   echo "$(ts) DISK at ${pct}%" >> "$LOG"

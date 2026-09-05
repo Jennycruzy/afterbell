@@ -132,10 +132,26 @@ class Policy:
         return bool(self.raw.get("executor", {})
                     .get("require_manual_invocation", True))
 
+    @property
+    def kill_file(self) -> Path:
+        return Path(str(self.raw["operator_freeze"]["kill_file"]))
+
+    def freeze_active(self) -> bool:
+        """True when the operator freeze file is present.
+
+        An unreadable path fails closed. A freeze whose state cannot be read is
+        treated as engaged, because the failure mode of a freeze that silently
+        stops working is the one that matters.
+        """
+        try:
+            return self.kill_file.exists()
+        except OSError:
+            return True
+
 
 _REQUIRED = ("version", "status", "base_notional_usdt", "calibration", "clock",
              "liquidity", "basis", "corporate_actions", "registry_sha256",
-             "verdicts")
+             "verdicts", "operator_freeze")
 
 
 def load(path: str | Path | None = None) -> Policy:

@@ -14,6 +14,10 @@ is provably risk-reducing, which is what makes it safe to grant autonomy to.
 
 Law 9: during regular hours with a live reference, tight spreads and normal
 depth, this passes cleanly and stays out of the way.
+
+The operator freeze runs ahead of all six protections. It is the only control
+here that is not a measurement: a file exists or it does not, and while it does
+this module returns BLOCK without consulting the market at all.
 """
 from __future__ import annotations
 
@@ -457,6 +461,20 @@ def evaluate(req: OrderRequest, ctx: MarketContext, pol: Policy) -> Decision:
     """
     if req.notional <= 0:
         raise ValueError("requested notional must be positive")
+
+    # The operator freeze is checked before anything else, and deliberately
+    # before the measurements are even read. A control that runs first cannot
+    # be argued past by any input, because no input has been consulted yet.
+    if pol.freeze_active():
+        frozen = GateResult(
+            "OPERATOR_FREEZE", Verdict.BLOCK, 0.0,
+            f"operator freeze engaged; {pol.kill_file} is present. No "
+            "authorization is issued while it exists",
+            {"operator_freeze": True, "kill_file": str(pol.kill_file)})
+        return Decision(
+            Verdict.BLOCK, 0.0, req.notional, "OPERATOR_FREEZE", [frozen],
+            _rationale(Verdict.BLOCK, 0.0, req, ctx, [frozen]), ctx,
+            pol.sha256)
 
     gates = [
         gate_clock(ctx, pol),

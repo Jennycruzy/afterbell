@@ -381,6 +381,18 @@ definition of disagreement, and the price-disagreement check would then grade th
 yardstick built from the weekend. Staleness already has its own control, the
 DEGRADED floor keyed on reference age, and one risk must not be counted twice.
 
+Two different things are calibrated on two different schedules, and only the
+first of them is done:
+
+```
+Liquidity baselines:    CALIBRATED   (781 RTH_OPEN samples/symbol, 300 required)
+Risk policy thresholds: UNCALIBRATED (CLOSED_HOLIDAY unobserved until 7 Sep)
+```
+
+The table below reports the first. `config/policy.yaml` ships the second as
+`status: UNCALIBRATED`, and no threshold in it was promoted from measurement
+without a human reading the proposal first.
+
 <!-- CALIBRATION TABLE START -->
 Generated 2026-09-05 13:50Z from 17,965 measured books and 14,135 reference prints. Depth band ±1%; baseline window: rolling 7-day window.
 
@@ -484,8 +496,12 @@ what is running, what is built, and what is still open.
 ## Known limitations
 
 - AFTERBELL **cannot fire Binance's Emergency Stop** — that is a manual web-UI
-  action (Profile → Dashboard → Sub-account). It cancels, flattens and freezes
-  at its own layer and notifies; it cannot reach that control.
+  action (Profile → Dashboard → Sub-account) with no API surface. What it can
+  do is **freeze**: an operator kill file halts every authorization at
+  AFTERBELL's own layer before any safety check runs, receipted as
+  `OPERATOR_FREEZE` and alerted on transition. It cannot cancel resting orders
+  or flatten positions, because both mean **originating** an order, and
+  AFTERBELL never originates one.
 - Calibration rests on a small number of days of data, stated explicitly above
   once measured.
 - The authenticated `binance-tokenized-securities-info` skill query is still

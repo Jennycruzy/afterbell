@@ -16,6 +16,22 @@ status: UNCALIBRATED          # -> CALIBRATED once Part VIII completes
 
 base_notional_usdt: 5000.0
 
+# ---------------------------------------------------------------------------
+# Operator freeze.
+#
+# A file, because a file is the one control that works from anywhere with SSH
+# and needs no service to be healthy to take effect. If it exists, the guard
+# refuses everything before any safety check runs, so no input can argue past
+# it: there is nothing to argue with, the checks never execute.
+#
+# This is not Binance's Emergency Stop, which is a manual web-UI action with no
+# API surface and is never attempted from here. This halts AFTERBELL's own
+# authorizations. It cannot cancel a resting order or flatten a position,
+# because both mean originating an order, which the guard never does (Law 7).
+# ---------------------------------------------------------------------------
+operator_freeze:
+  kill_file: /var/afterbell/FREEZE
+
 calibration:
   min_rth_samples: 300        # per symbol, before a baseline is usable
   baseline_window_days: 7
