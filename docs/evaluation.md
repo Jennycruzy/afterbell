@@ -23,4 +23,4 @@
 
 The first version of this definition counted every regular-hours reduction as a false positive and reported 28.5%. That was wrong: most of those reductions were responses to a spread several times its own median, or to a baseline that had not yet reached its sample minimum. A guard that permitted those would be broken, not precise.
 
-Regenerate with `python -m afterbell.evaluation`. Every figure above is computed from the adversarial corpus and the receipt ledger; none is maintained by hand.
+Regenerate with `.venv/bin/python -m afterbell.evaluation`. Every figure above is computed from the adversarial corpus and the receipt ledger; none is maintained by hand.

@@ -4,7 +4,9 @@ Computed from the trade prints the recorder already stores. bStocks trade on a c
 
 ### What was actually captured
 
-The recorder fetches the last 50 trades once a minute. Trade ids are consecutive, so the size of anything missed is knowable exactly, and is reported rather than assumed away.
+Before 2026-09-05 14:43 UTC, the recorder fetched the last 50 trades once a minute;
+that historical limit caused the coverage bias described below. It now fetches
+up to 1000 trades per cycle. Trade ids are consecutive, so the size of anything missed is knowable exactly, and is reported rather than assumed away.
 
 | Symbol | Prints captured | Prints that occurred | Share of tape | Minutes with no hole | Diurnal flatness |
 |---|---:|---:|---:|---:|---:|
@@ -14,7 +16,7 @@ The recorder fetches the last 50 trades once a minute. Trade ids are consecutive
 | SNDKBUSDT | 111,587 | 324,695 | 34.4% | 64.3% | 0.095 |
 | TSLABUSDT | 42,840 | 54,922 | 78.0% | 93.9% | 0.065 |
 
-The prints lost are the ones in bursts, which is exactly where automation would show. Timing figures below are therefore computed only across pairs of arrivals with consecutive ids, where nothing can have been missed between them.
+In the historical pre-fix sample, the prints lost were the ones in bursts, which is exactly where automation would show. Timing figures below are therefore computed only across pairs of arrivals with consecutive ids, where nothing can have been missed between them.
 
 Diurnal flatness is the quietest hour's volume over the busiest hour's across the whole day, so 1.0 is a market that never sleeps. It is measured per symbol, not per state: a state cannot answer it, because `RTH_OPEN` spans 6.5 hours of the clock by definition.
 
@@ -52,15 +54,15 @@ Diurnal flatness is the quietest hour's volume over the busiest hour's across th
 
 **Not enough of the tape was captured to answer the question, and the honest result is to say so rather than to publish a direction.**
 
-The hypothesis worth testing was that the counterparty on the other side of a weekend trade is another agent. Answering it means comparing two market states, and that is only legitimate if both were sampled the same way. They were not: regular hours were captured at 24.0% and the weekend at 55.5%, because a fixed 50-print poll truncates a busy session far harder than a quiet weekend.
+The hypothesis worth testing was that the counterparty on the other side of a weekend trade is another agent. Answering it means comparing two market states, and that is only legitimate if both were sampled the same way. They were not: regular hours were captured at 24.0% and the weekend at 55.5%, because the historical fixed 50-print poll truncated a busy session far harder than a quiet weekend.
 
 That difference is not a detail. Measured both ways, the answer reverses. Counting every consecutive-id pair over-samples busy minutes, whose prints are the ones that survive truncation, and makes regular hours look burstier than the weekend. Restricting to minutes captured without a hole over-samples quiet minutes instead, and makes the weekend look burstier than regular hours. Both estimators are biased, in opposite directions, and both bite hardest on the busiest state. A finding that flips depending on which of two flawed estimators is chosen is not a finding.
 
-The cause was a recorder limit, not a market: `TRADE_LIMIT` was 50 prints per minute, which is written up as the sixth silent failure. It was raised to 1000 on 2026-09-05 at 14:43 UTC, and since then every cycle has been captured with no holes at all. Once a full session and a full closure have been recorded that way, this comparison becomes answerable and the answer will appear here.
+The cause was a recorder limit, not a market: the historical `TRADE_LIMIT` was 50 prints per minute, which is written up as the sixth silent failure. It was raised to 1000 on 2026-09-05 at 14:43 UTC, and since then every cycle has been captured with no holes at all. Once a full session and a full closure have been recorded that way, this comparison becomes answerable and the answer will appear here.
 
 The per-state tables below stand on their own — they describe what was seen, which is a fact — but no comparison **between** states should be read off them until coverage is even.
 
 
 **Reading the columns.** An *arrival* is one aggressive order; the prints it produced against separate resting orders are collapsed into it, and `prints per arrival` reports how many makers it consumed. Inter-arrival CV near 1.0 is Poisson-ish arrival, the shape human order flow takes; below 1.0 is more regular than chance, above it is burstier. A dash means too few samples to say anything, which is reported rather than filled in.
 
-Regenerate with `python -m afterbell.counterparty`.
+Regenerate with `.venv/bin/python -m afterbell.counterparty`.

@@ -13,18 +13,20 @@ same way.
 on-chain wallet tracking cannot see this flow at all. Everything here is
 computed from the trade prints the recorder already stores.
 
-**The sampling limit, stated first because it bounds every number below.** The
-recorder polls the last 50 trades once a minute. In a quiet minute that is the
-whole tape and then some — the median batch spans longer than the cycle that
-fetched it, so consecutive batches overlap and nothing is missed. In a busy
-minute more than 50 trades happen and the rest are never seen. Trade ids are
-consecutive per symbol, so the size of what was missed is knowable exactly:
-the gap between the highest id of one batch and the lowest of the next.
+**The sampling limit, stated first because it bounds every number below.** Before
+2026-09-05 14:43 UTC, the recorder polled the last 50 trades once a minute. In a
+quiet minute that was the whole tape and then some — the median batch spanned
+longer than the cycle that fetched it, so consecutive batches overlapped and
+nothing was missed. In a busy minute more than 50 trades happened and the rest
+were never seen. Trade ids are consecutive per symbol, so the size of what was
+missed is knowable exactly: the gap between the highest id of one batch and the
+lowest of the next. The recorder now fetches up to 1000 trades per cycle.
 
-That matters because the trades lost are precisely the ones in bursts, which is
-the signal automation would show up in. So the burst and inter-arrival figures
-are computed **only over windows where the capture was provably complete**, and
-the coverage those windows represent is published beside them. Measuring the
+That historical truncation matters because the trades lost in those runs were
+precisely the ones in bursts, which is the signal automation would show up in.
+The burst and inter-arrival figures are computed **only over windows where the
+capture was provably complete**, and the coverage those windows represent is
+published beside them. Measuring the
 truncation rather than the market is the failure this module is written to
 avoid; it is the same mistake as recording 20 depth levels and reporting the
 ladder's end as the market's depth.
@@ -63,7 +65,7 @@ from afterbell.clock import evaluate as clock_at
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
 
-BATCH_LIMIT = 50           # what the recorder asks for each cycle
+BATCH_LIMIT = 50           # historical pre-fix request; recorder now uses 1000
 BURST_MS = 200             # "multiple fills inside 200ms"
 ROUND_NOTIONALS = (10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0)
 
@@ -433,8 +435,8 @@ def finding(agg: dict[str, StateAggregate],
             f"means comparing two market states, and that is only legitimate "
             f"if both were sampled the same way. They were not: regular hours "
             f"were captured at {100 * (cov_rth or 0):.1f}% and the weekend at "
-            f"{100 * (cov_wknd or 0):.1f}%, because a fixed 50-print poll "
-            f"truncates a busy session far harder than a quiet weekend.",
+            f"{100 * (cov_wknd or 0):.1f}%, because a historical fixed 50-print poll "
+            f"truncated a busy session far harder than a quiet weekend.",
             "",
             "That difference is not a detail. Measured both ways, the answer "
             "reverses. Counting every consecutive-id pair over-samples busy "
@@ -498,7 +500,7 @@ def render(by_symbol: dict[str, dict[str, StateMetrics]],
         "",
         "### What was actually captured",
         "",
-        "The recorder fetches the last 50 trades once a minute. Trade ids are "
+        "Before 2026-09-05 14:43 UTC, the recorder fetched the last 50 trades once a minute; that historical limit caused the coverage bias described below. It now fetches up to 1000 trades per cycle. Trade ids are "
         "consecutive, so the size of anything missed is knowable exactly, and "
         "is reported rather than assumed away.",
         "",
@@ -516,7 +518,7 @@ def render(by_symbol: dict[str, dict[str, StateMetrics]],
 
     lines += [
         "",
-        "The prints lost are the ones in bursts, which is exactly where "
+        "In the historical pre-fix sample, the prints lost were the ones in bursts, which is exactly where "
         "automation would show. Timing figures below are therefore computed "
         "only across pairs of arrivals with consecutive ids, where nothing "
         "can have been missed between them.",
@@ -556,7 +558,7 @@ def render(by_symbol: dict[str, dict[str, StateMetrics]],
         "burstier. A dash means too few samples to say anything, which is "
         "reported rather than filled in.",
         "",
-        "Regenerate with `python -m afterbell.counterparty`.",
+        "Regenerate with `.venv/bin/python -m afterbell.counterparty`.",
     ]
     return "\n".join(lines)
 

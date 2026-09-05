@@ -38,7 +38,7 @@ is not. Sections marked _not yet built_ are not built.
 
 The first version of this definition counted every regular-hours reduction as a false positive and reported 28.5%. That was wrong: most of those reductions were responses to a spread several times its own median, or to a baseline that had not yet reached its sample minimum. A guard that permitted those would be broken, not precise.
 
-Regenerate with `python -m afterbell.evaluation`. Every figure above is computed from the adversarial corpus and the receipt ledger; none is maintained by hand.
+Regenerate with `.venv/bin/python -m afterbell.evaluation`. Every figure above is computed from the adversarial corpus and the receipt ledger; none is maintained by hand.
 <!-- EVALUATION TABLE END -->
 
 ---
@@ -169,9 +169,10 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 
 ### Operator configuration still required
 
-On this VPS, HTTPS, Google Drive off-site backup, and Healthchecks monitoring
-are configured outside the repository. Binance OAuth is managed by Codex;
-read-only bStocks account eligibility remains account-bound. **Corporate-action protection is
+On this VPS, HTTPS and Google Drive off-site backup are configured outside the
+repository. Binance OAuth is active in Codex; a read-only Spot account probe
+returned `canTrade: true` but no Spot balances. Healthchecks is external and
+transition delivery still needs a verified alert test. **Corporate-action protection is
 Binance-native:** it checks bStocks processing status and reported reason messages, while
 explicitly not claiming guaranteed advance notice. Yahoo remains the active reference provider.
 
@@ -583,7 +584,9 @@ Computed from the trade prints the recorder already stores. bStocks trade on a c
 
 ### What was actually captured
 
-The recorder fetches the last 50 trades once a minute. Trade ids are consecutive, so the size of anything missed is knowable exactly, and is reported rather than assumed away.
+Before 2026-09-05 14:43 UTC, the recorder fetched the last 50 trades once a minute;
+that historical limit caused the coverage bias described below. It now fetches
+up to 1000 trades per cycle. Trade ids are consecutive, so the size of anything missed is knowable exactly, and is reported rather than assumed away.
 
 | Symbol | Prints captured | Prints that occurred | Share of tape | Minutes with no hole | Diurnal flatness |
 |---|---:|---:|---:|---:|---:|
@@ -593,7 +596,7 @@ The recorder fetches the last 50 trades once a minute. Trade ids are consecutive
 | SNDKBUSDT | 111,587 | 324,695 | 34.4% | 64.3% | 0.095 |
 | TSLABUSDT | 42,840 | 54,922 | 78.0% | 93.9% | 0.065 |
 
-The prints lost are the ones in bursts, which is exactly where automation would show. Timing figures below are therefore computed only across pairs of arrivals with consecutive ids, where nothing can have been missed between them.
+In the historical pre-fix sample, the prints lost were the ones in bursts, which is exactly where automation would show. Timing figures below are therefore computed only across pairs of arrivals with consecutive ids, where nothing can have been missed between them.
 
 Diurnal flatness is the quietest hour's volume over the busiest hour's across the whole day, so 1.0 is a market that never sleeps. It is measured per symbol, not per state: a state cannot answer it, because `RTH_OPEN` spans 6.5 hours of the clock by definition.
 
@@ -631,19 +634,36 @@ Diurnal flatness is the quietest hour's volume over the busiest hour's across th
 
 **Not enough of the tape was captured to answer the question, and the honest result is to say so rather than to publish a direction.**
 
-The hypothesis worth testing was that the counterparty on the other side of a weekend trade is another agent. Answering it means comparing two market states, and that is only legitimate if both were sampled the same way. They were not: regular hours were captured at 24.0% and the weekend at 55.5%, because a fixed 50-print poll truncates a busy session far harder than a quiet weekend.
+The hypothesis worth testing was that the counterparty on the other side of a weekend trade is another agent. Answering it means comparing two market states, and that is only legitimate if both were sampled the same way. They were not: regular hours were captured at 24.0% and the weekend at 55.5%, because the historical fixed 50-print poll truncated a busy session far harder than a quiet weekend.
 
 That difference is not a detail. Measured both ways, the answer reverses. Counting every consecutive-id pair over-samples busy minutes, whose prints are the ones that survive truncation, and makes regular hours look burstier than the weekend. Restricting to minutes captured without a hole over-samples quiet minutes instead, and makes the weekend look burstier than regular hours. Both estimators are biased, in opposite directions, and both bite hardest on the busiest state. A finding that flips depending on which of two flawed estimators is chosen is not a finding.
 
-The cause was a recorder limit, not a market: `TRADE_LIMIT` was 50 prints per minute, which is written up as the sixth silent failure. It was raised to 1000 on 2026-09-05 at 14:43 UTC, and since then every cycle has been captured with no holes at all. Once a full session and a full closure have been recorded that way, this comparison becomes answerable and the answer will appear here.
+The cause was a recorder limit, not a market: the historical `TRADE_LIMIT` was 50 prints per minute, which is written up as the sixth silent failure. It was raised to 1000 on 2026-09-05 at 14:43 UTC, and since then every cycle has been captured with no holes at all. Once a full session and a full closure have been recorded that way, this comparison becomes answerable and the answer will appear here.
 
 The per-state tables below stand on their own — they describe what was seen, which is a fact — but no comparison **between** states should be read off them until coverage is even.
 
 
 **Reading the columns.** An *arrival* is one aggressive order; the prints it produced against separate resting orders are collapsed into it, and `prints per arrival` reports how many makers it consumed. Inter-arrival CV near 1.0 is Poisson-ish arrival, the shape human order flow takes; below 1.0 is more regular than chance, above it is burstier. A dash means too few samples to say anything, which is reported rather than filled in.
 
-Regenerate with `python -m afterbell.counterparty`.
+Regenerate with `.venv/bin/python -m afterbell.counterparty`.
 <!-- COUNTERPARTY END -->
+
+## Remaining gaps
+
+1. **D1 operational acceptance:** Codex OAuth and read-only account/product
+   checks work, but no real order ID or fill receipt exists; the Spot account
+   currently has no balances.
+2. **D5 aggregate exposure ceiling:** not built.
+3. **D7 Skills Hub PR:** not opened.
+4. **D11 video and submission mechanics:** not started.
+5. **D6 advance corporate-action notice:** Binance current status is authoritative;
+   Alpaca is optional best-effort and not wired or configured.
+6. **D8 Square publishing:** awaits Creator Center API key.
+7. **D9 counterparty comparison:** wait for an even post-fix RTH/closure sample.
+8. **Public MCP hardening:** rate limiting and bounded receipt growth are not
+   implemented.
+9. **Calibration:** `CLOSED_HOLIDAY` remains unobserved; policy stays
+   `UNCALIBRATED` pending data and manual review.
 
 ## Known limitations
 
@@ -657,15 +677,17 @@ Regenerate with `python -m afterbell.counterparty`.
 - Calibration rests on a small number of days of data, stated explicitly above
   once measured.
 - The authenticated `binance-tokenized-securities-info` skill query is still
-  account-bound and pending. The unauthenticated bStocks status endpoint was
-  live-verified for NVDAB on 2026-09-03 as `TRADING`; the public token-audit
-  endpoint returned `isSupported=false` and `hasResult=false`, so contract verification is
-  explicitly registry-only for bStocks. The code supports the authenticated
-  skill path when OAuth is completed, but does not claim that result in advance.
+  account-bound and is not claimed here. Codex OAuth and read-only Spot checks
+  are verified, but bStock funding/jurisdiction eligibility and a real order
+  remain unproven. The unauthenticated bStocks status endpoint was live-verified
+  for NVDAB on 2026-09-03 as `TRADING`; the public token-audit endpoint returned
+  `isSupported=false` and `hasResult=false`, so contract verification is explicitly
+  registry-only for bStocks.
 - **Corporate-action protection is Binance-native.** It uses bStocks processing status and reported reason messages, not Alpaca credentials. Binance does not guarantee advance notice, so receipts label a clear current state as partial rather than claiming a lookahead.
-- **Off-site backup and external alerting are configured.** The backup uses
-  non-destructive `rclone copy` to Google Drive, and the watchdog pings the
-  configured Healthchecks endpoint. Their credentials remain outside the
+- **Off-site backup is configured; external alerting is not yet proven.** The
+  backup uses non-destructive `rclone copy` to Google Drive. The watchdog logs
+  an explicit alert gap when no Healthchecks URL is populated; verify a real
+  transition before claiming delivery. Credentials remain outside the
   repository.
 - **AFTERBELL never places an order.** Its Python processes hold no Binance
   OAuth credential and contain no authenticated Agent OS client. The guard signs

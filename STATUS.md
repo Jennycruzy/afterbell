@@ -1,9 +1,9 @@
 # AFTERBELL — build status
 
-Updated **2026-09-05 14:30 UTC**. This file separates code that is built from
+Updated **2026-09-05 16:56 UTC**. This file separates code that is built from
 external facts that still need an account holder or destination.
 
-For the exact continuation point after the latest audit, read `HANDOFF.md`.
+The detailed continuation handoff is intentionally local-only and untracked; this file records the public status.
 
 ## Running unattended right now
 
@@ -36,16 +36,14 @@ certificate renewal. TCP 8100 is not allowed through UFW.
 - Live public Binance bStocks status and token-audit adapters
 - Binance-native corporate-action status checks; current status is
   never mislabeled as guaranteed corporate-action lookahead
-- Streamable HTTP MCP session client, Codex-managed OAuth connection boundary,
-  dynamic order-tool discovery, and redacted execution receipts
+- Credential-free D1 authorization boundary: Ed25519-signed 120-second artifacts,
+  atomic nonce reservation, exact Codex MCP handoff, and child fill receipts
 - Optional narration-only adapter; provider text cannot contain measurements or
   enter the decision
 - Dashboard with recorded basis/age chart, calibration table, guard state,
   policy SHA and ledger head
 - Operator freeze: a kill file checked ahead of all six protections, receipted
   as `OPERATOR_FREEZE` and alerted on both transitions
-- Signed short-lived authorizations (Ed25519, 120s TTL, single-use nonce) and
-  the credential-free transcriber, which atomically reserves fixed arguments for a supported Codex MCP client
 - A read-only MCP server surface: `evaluate_order` and `get_market_state`,
   unauthenticated, receipted, reachable from any client
 - The evaluation table, generated from the adversarial corpus and the ledger
@@ -99,23 +97,46 @@ The calibration command is reproducible and never edits live policy:
 ```
 .venv/bin/python -m afterbell.calibrate --out docs/calibration.md
 ```
-## Account-bound validation still pending
+## Account-bound validation
 
 1. Binance Agent OS is authenticated through the supported Codex MCP client;
-   `python scripts/connect_binance.py` confirms configuration without reading
-   Codex credentials. Run account/product checks through that MCP client.
-2. A successful OAuth/read probe is not proof of bStocks trading eligibility.
-   No real order has been sent. A $5 NVDAB test requires explicit account-holder
-   approval and must be performed separately.
-4. HTTPS, Google Drive off-site backup, and external Healthchecks monitoring
-   are configured.
+   `codex mcp list` shows `binance-agent-os` enabled with `Auth: OAuth`. A
+   read-only `spot.getAccount` probe succeeded with `canTrade: true`, but the
+   Spot `balances` array is empty.
+2. `spot.exchangeInfo` reports `NVDABUSDT` `TRADING`,
+   `isSpotTradingAllowed: true`, and `NOTIONAL.minNotional=5.00` USDT. This
+   is not proof that the account is funded or jurisdiction-eligible for a
+   real bStock trade.
+3. No real order has been sent. A minimum NVDAB test requires fresh, explicit
+   account-holder approval and funds in the connected Spot account.
+4. HTTPS and Google Drive backup are configured outside the repository.
+   Healthchecks transition delivery is not yet proven; watchdog logs include
+   an earlier `ALERT GAP` for a missing URL.
+
+## Remaining gaps
+
+1. **D1 operational acceptance:** the credential-free authorization boundary is
+   built and Codex OAuth is verified, but no real order ID or fill receipt
+   exists. The connected Spot account currently has no balances.
+2. **D5 aggregate exposure ceiling:** not built.
+3. **D7 Skills Hub PR:** not opened.
+4. **D11 video and submission mechanics:** not started.
+5. **D6 advance corporate-action notice:** Binance current status is live and
+   authoritative; Alpaca is optional best-effort and not wired or configured.
+6. **D8 Square publishing:** awaits Creator Center API key.
+7. **D9 counterparty comparison:** wait for an even post-fix RTH/closure sample.
+8. **Public MCP hardening:** rate limiting and bounded receipt growth are not
+   implemented.
+9. **Calibration:** CLOSED_HOLIDAY remains unobserved; policy stays
+   UNCALIBRATED pending data and manual review.
 
 ## Known limitations
 
 - AFTERBELL cannot fire Binance's Emergency Stop; that remains a manual web-UI
   control.
-- The authenticated tokenized-securities skill query and bStocks account or
-  jurisdiction eligibility are not claimed until OAuth/account testing occurs.
+- The authenticated tokenized-securities skill query remains account-bound and
+  is not claimed here. Codex OAuth and read-only Spot checks are verified, but
+  bStock funding/jurisdiction eligibility and a real order remain unproven.
 - The public token audit does not support bStocks, so contract verification's live fallback is the
   canonical registry alone.
 - The current box is in AWS eu-west-1 rather than the Tokyo region recommended
