@@ -11,7 +11,8 @@ import pytest
 
 from afterbell.authorization import (
     Authorization, AuthorizationError, check_redeemable, generate_keypair,
-    issue, load_private_key, load_public_key, nonce_redeemed, parse,
+    issue, load_private_key, load_public_key, nonce_consumed, nonce_finalized,
+    nonce_redeemed, nonce_reserved, parse, reserve,
     redemption_record, verify,
 )
 from afterbell.guard import Verdict, evaluate, to_receipt
@@ -182,6 +183,25 @@ def test_an_unrelated_nonce_is_not_treated_as_redeemed(keys, ledger):
     auth, _, _ = authorize(keys, ledger)
     ledger.append({"kind": "decision", "nonce": auth.nonce})   # not a redemption
     assert not nonce_redeemed(ledger.path, auth.nonce)
+
+
+def test_reservation_is_atomic_and_consumes_the_nonce(keys, ledger):
+    auth, _, _ = authorize(keys, ledger)
+    reserve(auth, keys[1], ledger.path)
+    assert nonce_reserved(ledger.path, auth.nonce)
+    assert nonce_consumed(ledger.path, auth.nonce)
+    with pytest.raises(AuthorizationError, match="replay refused"):
+        reserve(auth, keys[1], ledger.path)
+
+
+def test_reservation_is_not_a_final_fill(keys, ledger):
+    auth, _, _ = authorize(keys, ledger)
+    reserve(auth, keys[1], ledger.path)
+    assert not nonce_finalized(ledger.path, auth.nonce)
+    ledger.append(redemption_record(
+        auth, placed_notional=auth.permitted_notional, order_id="abc",
+        venue_response={"orderId": "abc"}, placed_by="codex-supported-mcp"))
+    assert nonce_finalized(ledger.path, auth.nonce)
 
 
 # ---------------- chained ----------------

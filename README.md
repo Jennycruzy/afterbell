@@ -155,11 +155,11 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 - **Corporate-action and contract public checks** (`afterbell/public_checks.py`) — live unauthenticated
   bStocks status and token-audit calls. Unsupported bStocks auditing is exposed
   as an explicit registry-only result, never reported as a clean audit.
-- **Agent OS connection boundary and executor** (`afterbell/mcp.py`,
-  `scripts/connect_binance.py`, `afterbell/executor.py`) — supported
-  Codex-managed OAuth, Streamable HTTP session handling, redacted execution
-  receipts and monotone execution ceilings. Execution remains disabled by the
-  shipped policy.
+- **Governed-execution authorization boundary** (`afterbell/authorization.py`,
+  `scripts/transcribe.py`) — Ed25519-signed, 120-second, atomically
+  single-use authorizations. Python never receives Binance OAuth or calls the
+  order endpoint; Codex's supported MCP client alone may submit the signed
+  artifact's exact arguments. The shipped policy remains disabled.
 - **Narration adapter** (`afterbell/rationale.py`) — optional
   OpenAI-compatible prose around the deterministic rationale. Provider text is
   rejected if it contains digits or measurements, and can never enter sizing.
@@ -562,9 +562,10 @@ interaction needs OAuth, reads included. Nothing in the recorder or the guard
 depends on it, which is the point of keeping them on the unauthenticated path.
 
 The standalone PKCE client formerly shipped with this repository is not used:
-Binance rejects it as an unsupported agent. The executor remains disabled and
-does not receive Codex's OAuth credential; any future execution design must
-remain within the supported MCP client boundary.
+Binance rejects it as an unsupported agent. Python contains no Agent OS client
+and never receives Codex's OAuth credential. Governed execution is a signed
+authorization handed to the supported Codex MCP client, which alone can invoke
+the discovered Binance order tool.
 
 ## Operations
 
@@ -666,17 +667,13 @@ Regenerate with `python -m afterbell.counterparty`.
   non-destructive `rclone copy` to Google Drive, and the watchdog pings the
   configured Healthchecks endpoint. Their credentials remain outside the
   repository.
-- **One module can place an order, and it ships disabled.** `afterbell.executor`
-  is the only code here that can trade. It is not importable from the package
-  root — `from afterbell import Guard` still reaches nothing that can place an
-  order — and it cannot originate one: it takes a decision the guard already
-  produced and does nothing but shrink it. Four ceilings apply and each can only
-  reduce: the guard's permitted notional, a hand-set `max_order_usdt`, a symbol
-  allowlist, and an `enabled` flag that is `false` in the shipped policy. The
-  loader refuses to start if execution is enabled with a non-positive cap, a cap
-  looser than the base notional, or an empty allowlist. Every execution is
-  receipted with both the permitted size and the placed size, so the cap is
-  auditable after the fact.
+- **AFTERBELL never places an order.** Its Python processes hold no Binance
+  OAuth credential and contain no authenticated Agent OS client. The guard signs
+  an exact, short-lived authorization only after applying its ceilings; the
+  credential-holding supported Codex MCP client may then submit those exact
+  arguments. The transcriber atomically reserves the nonce before handoff and
+  records the returned venue response as a child receipt. The shipped policy is
+  still `enabled: false`; a public clone never trades by default.
 
 ## Licence and disclaimer
 

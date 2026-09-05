@@ -110,9 +110,9 @@ signals compound into a block no single measurement supports.
 - **The guard cannot place, amend or cancel an order.** Its result space
   is PASS, WARN, REDUCE, BLOCK plus a permitted notional never larger than the
   request. The action space is provably risk-reducing, which is what makes it
-  safe to grant autonomy to. A separate module, `afterbell.executor`, can place
-  an order and ships disabled; it cannot originate one, only shrink one the
-  guard already permitted, under a hand-set cap and a symbol allowlist.
+  safe to grant autonomy to. The guard signs an exact, short-lived authorization only. Python never holds
+  Binance OAuth or calls Binance's authenticated order endpoint; the supported
+  Codex MCP client is the sole submitter of the fixed arguments.
 - **It cannot be talked out of a limit.** Thresholds live in a checksummed file
   on disk, loaded at startup. There is no argument, no keyword and no request
   field that raises one. This is tested, not asserted: `python -m

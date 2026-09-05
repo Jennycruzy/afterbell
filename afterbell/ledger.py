@@ -139,6 +139,34 @@ class Ledger:
             self._head = rec[_HASH_FIELD]
             return rec
 
+    def append_once(self, record: dict[str, Any], *, field: str,
+                    value: str, kinds: set[str]) -> dict[str, Any]:
+        """Append only when no earlier record with ``field=value`` exists.
+
+        The test and append share the ledger lock, preventing two supported
+        clients from passing a check-then-place race with one authorization.
+        """
+        with self._exclusive_lock():
+            self._seq, self._head = self._resume()
+            for existing in self:
+                if (existing.get("kind") in kinds
+                        and existing.get(field) == value):
+                    raise RuntimeError(f"{field} {value} is already recorded as "
+                                       f"{existing.get('kind')}")
+            rec = dict(record)
+            rec["seq"] = self._seq + 1
+            rec.setdefault("ts", datetime.now(timezone.utc)
+                           .strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z")
+            rec["prev_hash"] = self._head
+            rec[_HASH_FIELD] = compute_hash(self._head, rec)
+            with self.path.open("a", encoding="utf-8") as fh:
+                fh.write(canonical_json(rec) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            self._seq = rec["seq"]
+            self._head = rec[_HASH_FIELD]
+            return rec
+
     def __iter__(self) -> Iterator[dict[str, Any]]:
         if not self.path.exists():
             return

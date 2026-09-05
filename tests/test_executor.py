@@ -13,7 +13,7 @@ import yaml
 from afterbell.baselines import Baseline
 from afterbell.clock import evaluate as clock_at
 from afterbell.executor import (
-    ExecutionRefused, _place_order_tool, execute, plan,
+    ExecutionRefused, execute, plan,
 )
 from afterbell.guard import MarketContext, OrderRequest, Verdict, evaluate
 from afterbell.measure import Book, Level, Side, depth_within, half_spread_bps
@@ -158,14 +158,6 @@ def test_receipt_records_both_sizes_so_the_cap_is_auditable(tmp_path):
     assert rec["capped_below_guard"] is True
 
 
-def test_live_without_a_token_refuses_rather_than_silently_dry_running(tmp_path,
-                                                                      monkeypatch):
-    monkeypatch.delenv("BINANCE_ACCESS_TOKEN", raising=False)
-    pol = enabled_policy(tmp_path)
-    req, d = decide(pol)
-    with pytest.raises(ExecutionRefused, match="no BINANCE_ACCESS_TOKEN"):
-        execute(plan(d, req, pol), live=True,
-                ledger_path=tmp_path / "executions.jsonl")
 
 
 def test_the_package_root_exposes_nothing_that_can_trade():
@@ -174,26 +166,9 @@ def test_the_package_root_exposes_nothing_that_can_trade():
     assert not hasattr(afterbell, "execute")
 
 
-class ToolSchema:
-    def __init__(self, tools):
-        self.tools = tools
-
-    def tools_list(self):
-        return {"result": {"tools": self.tools}}
-
-
-def test_executor_discovers_the_single_place_order_tool():
-    client = ToolSchema([
-        {"name": "get_account_info"},
-        {"name": "binanceSpotPlaceOrder"},
-    ])
-    assert _place_order_tool(client) == "binanceSpotPlaceOrder"
-
-
-def test_executor_refuses_ambiguous_write_tool_schema():
-    client = ToolSchema([
-        {"name": "place_order"},
-        {"name": "spot_place_order"},
-    ])
-    with pytest.raises(Exception, match="ambiguous place-order"):
-        _place_order_tool(client)
+def test_live_execution_is_refused_without_a_python_credential_path(tmp_path):
+    pol = enabled_policy(tmp_path)
+    req, d = decide(pol)
+    with pytest.raises(ExecutionRefused, match="never receives a Binance OAuth token"):
+        execute(plan(d, req, pol), live=True,
+                ledger_path=tmp_path / "executions.jsonl")

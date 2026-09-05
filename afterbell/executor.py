@@ -1,10 +1,10 @@
-"""Execution: the only module in this repository that can place an order.
+"""Execution planning only. The supported Codex MCP client is the only component that submits an order.
 
 It is deliberately the smallest thing here, and deliberately not importable
 from the package root. `from afterbell import Guard` still reaches nothing that
 can trade; you have to ask for this module by name.
 
-The design rule is one sentence: **the executor cannot originate an order.** It
+The design rule is one sentence: **the executor only plans; it cannot originate or submit an order.** It
 takes a Decision the guard already produced and does nothing but shrink it. It
 has no opinion about price, no symbol of its own, no schedule, and no way to
 construct a request. If the guard did not permit something, there is no code
@@ -17,9 +17,8 @@ Four ceilings apply, in this order, and each can only reduce:
   3. the policy's symbol allowlist          (absent means blocked)
   4. `executor.enabled`                     (false unless deliberately edited)
 
-None of them can raise the size. That is what makes it safe to hand this a
-token: the worst case is that every check passes and it places exactly what the
-guard already said was acceptable, capped by a hand-chosen number.
+None of them can raise the size. The plan is signed into the authorization;
+only a supported MCP client holds the OAuth session and may submit it.
 
 Law 4: the execution is receipted like everything else, and the receipt carries
 the hash of the guard decision that authorised it. An order with no matching
@@ -35,13 +34,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 from afterbell.guard import Decision, OrderRequest, Verdict
-from afterbell.mcp import MCPClient, MCPError
 from afterbell.policy import Policy
 
-MCP_URL = "https://agent.binance.com/mcp/agentic"
 ROOT = Path(__file__).resolve().parent.parent
 EXECUTION_LEDGER = ROOT / "data" / "executions.jsonl"
 
@@ -109,54 +104,6 @@ def plan(decision: Decision, req: OrderRequest, pol: Policy) -> ExecutionPlan:
         binding_ceiling=binding, policy_sha256=decision.policy_sha256)
 
 
-def _mcp(token: str, method: str, params: dict | None = None) -> dict:
-    """Make one authenticated request with a real MCP session lifecycle."""
-    client = MCPClient(token, url=MCP_URL)
-    try:
-        if method == "initialize":
-            return client.initialize()
-        return client.request(method, params)
-    finally:
-        client.close()
-
-
-def _place_order_tool(client: MCPClient) -> str:
-    """Resolve exactly one write tool from the authenticated server schema."""
-    payload = client.tools_list()
-    tools = payload.get("result", {}).get("tools")
-    if not isinstance(tools, list):
-        raise MCPError("tools/list returned no tool list; refusing execution")
-    names = []
-    for tool in tools:
-        if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
-            continue
-        name = tool["name"]
-        normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
-        words = set(normalized.lower().replace("-", "_").split("_"))
-        if "place" in words and "order" in words:
-            names.append(name)
-    if not names:
-        raise MCPError("authenticated Agent OS exposed no place-order tool")
-    exact = [n for n in names if n.lower() in
-             {"place_order", "spot_place_order", "binance_spot_place_order",
-              "binancespotplaceorder"}]
-    chosen = exact if exact else names
-    if len(chosen) != 1:
-        raise MCPError(f"ambiguous place-order tools: {sorted(chosen)}")
-    return chosen[0]
-
-
-def _mcp_place_order(token: str, arguments: dict) -> dict:
-    """Initialize, discover, and call only the server's actual order tool."""
-    client = MCPClient(token, url=MCP_URL)
-    try:
-        client.initialize()
-        tool = _place_order_tool(client)
-        return client.call_tool(tool, arguments)
-    finally:
-        client.close()
-
-
 def _redact(value: Any) -> Any:
     """Keep account identifiers and credentials out of execution receipts."""
     sensitive = {"authorization", "access_token", "refresh_token", "token",
@@ -207,33 +154,14 @@ def execute(p: ExecutionPlan, *, decision_hash: str | None = None,
     are compared by reading one field rather than by remembering which was
     which.
     """
-    token = os.environ.get("BINANCE_ACCESS_TOKEN", "").strip()
     response: Any = None
     sent = False
 
     if live:
-        if not token:
-            raise ExecutionRefused(
-                "no BINANCE_ACCESS_TOKEN; the supported Codex-managed OAuth connection intentionally does not expose its token to AFTERBELL, and this executor remains disabled by policy")
-        try:
-            response = _mcp_place_order(
-                token, {"symbol": p.symbol, "side": p.side,
-                        "type": "MARKET", "quoteOrderQty": p.notional})
-        except MCPError as exc:
-            response = {"error": str(exc)}
-            rec = _receipt(p, decision_hash, False, _redact(response))
-            _append_execution(Path(ledger_path), rec)
-            raise ExecutionRefused(f"authenticated order request failed: {exc}") from exc
-        result = response.get("result")
-        if "error" in response or (isinstance(result, dict)
-                                    and result.get("isError") is True):
-            safe = _redact(response)
-            rec = _receipt(p, decision_hash, False, safe)
-            _append_execution(Path(ledger_path), rec)
-            raise ExecutionRefused(
-                "Binance rejected the guarded order; no successful execution "
-                f"receipt was claimed: {json.dumps(safe)[:400]}")
-        sent = True
+        raise ExecutionRefused(
+            "AFTERBELL never receives a Binance OAuth token or calls the "
+            "order endpoint. Prepare a signed authorization and let the "
+            "supported Codex MCP client submit its exact arguments instead.")
 
     rec = _receipt(p, decision_hash, sent, _redact(response))
     _append_execution(Path(ledger_path), rec)

@@ -45,7 +45,7 @@ certificate renewal. TCP 8100 is not allowed through UFW.
 - Operator freeze: a kill file checked ahead of all six protections, receipted
   as `OPERATOR_FREEZE` and alerted on both transitions
 - Signed short-lived authorizations (Ed25519, 120s TTL, single-use nonce) and
-  the transcriber a supported MCP client runs to place exactly what they permit
+  the credential-free transcriber, which atomically reserves fixed arguments for a supported Codex MCP client
 - A read-only MCP server surface: `evaluate_order` and `get_market_state`,
   unauthenticated, receipted, reachable from any client
 - The evaluation table, generated from the adversarial corpus and the ledger
@@ -60,9 +60,8 @@ certificate renewal. TCP 8100 is not allowed through UFW.
   Removing the file restored the previous behaviour on the next cycle.
 - A live authorization was issued for a real decision: 5,000 USDT requested,
   600 permitted by the guard, narrowed to 25 by the hand-chosen execution
-  ceiling. The transcriber refused a tampered copy on the signature, refused a
-  `--notional` above the permitted size, and refused the artifact again once
-  its 120s TTL passed.
+  ceiling. The artifact signature and TTL were verified locally. No Binance credential was
+  exposed and no order was sent.
 - The MCP server answered `$5,000 NVDABUSDT BUY` over public HTTPS with
   `REDUCE` to 600 USDT, naming the weekend closure, in 1.1s.
 

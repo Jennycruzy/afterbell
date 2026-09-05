@@ -17,8 +17,8 @@ does not control, and each one is a test:
   signed       Ed25519, private key held only by the guard process. The
                transcriber verifies with a public key and therefore cannot
                forge one, which an HMAC would not give us
-  single-use   the nonce is recorded in the ledger on redemption; a replay is
-               refused against that record
+  single-use   the nonce is atomically reserved in the ledger before the
+               supported client is handed order arguments; a replay is refused
   monotone     the transcriber may place less than `permitted_notional` and
                never more. The check is in code, not in a prompt
   chained      it names the receipt sequence and hash of the decision it came
@@ -227,7 +227,7 @@ def parse(data: str | bytes | dict[str, Any]) -> Authorization:
 
 
 def verify(auth: Authorization, pub: Ed25519PublicKey, *,
-           now: datetime | None = None) -> None:
+           now: datetime | None = None, check_expiry: bool = True) -> None:
     """Raise unless the artifact is authentic, unexpired and well formed.
 
     Order matters only for the error message; every condition is checked.
@@ -249,7 +249,7 @@ def verify(auth: Authorization, pub: Ed25519PublicKey, *,
     if auth.permitted_notional > auth.requested_notional:
         raise AuthorizationError(
             "permitted notional exceeds requested notional")
-    if auth.is_expired(now):
+    if check_expiry and auth.is_expired(now):
         raise AuthorizationError(
             f"authorization expired at {auth.expires_at}; market state may "
             "have changed since it was issued")
@@ -260,11 +260,13 @@ def verify(auth: Authorization, pub: Ed25519PublicKey, *,
 # the only record here that survives a restart and cannot be rewritten.
 # --------------------------------------------------------------------------
 
+RESERVATION_KIND = "authorization_reserved"
 REDEMPTION_KIND = "authorization_redeemed"
+NONCE_CONSUMING_KINDS = {RESERVATION_KIND, REDEMPTION_KIND}
 
 
-def nonce_redeemed(ledger_path: str | Path, nonce: str) -> bool:
-    """True when this nonce already appears as a redemption in the ledger."""
+def nonce_consumed(ledger_path: str | Path, nonce: str) -> bool:
+    """True when a nonce was reserved or redeemed in the durable ledger."""
     path = Path(ledger_path)
     if not path.exists():
         return False
@@ -279,10 +281,81 @@ def nonce_redeemed(ledger_path: str | Path, nonce: str) -> bool:
                 rec = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if (rec.get("kind") == REDEMPTION_KIND
+            if (rec.get("kind") in NONCE_CONSUMING_KINDS
                     and rec.get("nonce") == nonce):
                 return True
     return False
+
+
+def nonce_reserved(ledger_path: str | Path, nonce: str) -> bool:
+    """True only after the one-time supported-client handoff was recorded."""
+    path = Path(ledger_path)
+    if not path.exists():
+        return False
+    from afterbell.ledger import Ledger
+    for rec in Ledger(path):
+        if rec.get("kind") == RESERVATION_KIND and rec.get("nonce") == nonce:
+            return True
+    return False
+
+
+def nonce_finalized(ledger_path: str | Path, nonce: str) -> bool:
+    """True when a reserved authorization already has its child receipt."""
+    path = Path(ledger_path)
+    if not path.exists():
+        return False
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("kind") == REDEMPTION_KIND and rec.get("nonce") == nonce:
+                return True
+    return False
+
+
+# Compatibility name for callers that only need the conservative answer. A
+# reservation has the same replay effect as a completed redemption.
+nonce_redeemed = nonce_consumed
+
+
+def reservation_record(auth: Authorization) -> dict[str, Any]:
+    """The durable, one-time handoff from guard to supported MCP client."""
+    return {
+        "kind": RESERVATION_KIND, "nonce": auth.nonce,
+        "authorizes_receipt_seq": auth.receipt_seq,
+        "authorizes_receipt_hash": auth.receipt_hash,
+        "symbol": auth.symbol, "side": auth.side,
+        "requested_notional": auth.requested_notional,
+        "permitted_notional": auth.permitted_notional,
+        "binding_constraint": auth.binding_constraint,
+        "market_state": auth.market_state,
+        "policy_sha256": auth.policy_sha256,
+    }
+
+
+def reserve(auth: Authorization, pub: Ed25519PublicKey,
+            ledger_path: str | Path, *, now: datetime | None = None) -> dict[str, Any]:
+    """Verify and consume an authorization before a client can place it.
+
+    A failed venue call consumes this nonce too. Retrying requires a fresh
+    authorization; that is preferable to two clients placing one artifact.
+    """
+    verify(auth, pub, now=now)
+    if auth.permitted_notional <= 0:
+        raise AuthorizationError(
+            f"authorization permits nothing ({auth.binding_constraint}); "
+            "there is no order to place")
+    from afterbell.ledger import Ledger
+    try:
+        return Ledger(ledger_path).append_once(
+            reservation_record(auth), field="nonce", value=auth.nonce,
+            kinds=NONCE_CONSUMING_KINDS)
+    except RuntimeError as exc:
+        raise AuthorizationError(
+            f"authorization {auth.nonce} was already reserved or redeemed; "
+            "replay refused") from exc
 
 
 def redemption_record(auth: Authorization, *, placed_notional: float,
@@ -326,7 +399,7 @@ def check_redeemable(auth: Authorization, pub: Ed25519PublicKey,
     accidentally check three of the four.
     """
     verify(auth, pub, now=now)
-    if nonce_redeemed(ledger_path, auth.nonce):
+    if nonce_consumed(ledger_path, auth.nonce):
         raise AuthorizationError(
             f"authorization {auth.nonce} was already redeemed; replay refused")
     if auth.permitted_notional <= 0:

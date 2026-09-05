@@ -391,6 +391,10 @@ def main() -> None:
     a = ap.parse_args()
 
     guard = Guard.from_policy(a.policy)
+    if a.authorize and not guard.policy.executor_enabled:
+        raise SystemExit(
+            "authorization issuance is disabled by policy; use a deliberate, "
+            "checksummed demo policy with executor.enabled: true")
     req = OrderRequest(a.symbol, Side(a.side), a.notional,
                        query=a.query or a.symbol,
                        observed_contract=a.contract, audit_verdict=a.audit)
