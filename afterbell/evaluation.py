@@ -235,6 +235,16 @@ def render(adv: AdversarialSummary, led: LedgerSummary, *,
         "of band are counted separately as correct, and refusals during a "
         "closure are not counted at all, because the market really was shut.",
         "",
+        "**What the cohort is made of.** The continuous monitor requests a "
+        "constant `base_notional` — 5,000 USDT — once a minute, so this is one "
+        "repeated probe rather than a realistic mix of order sizes. That makes "
+        "the rate stricter, not looser: asking for exactly the base notional "
+        "is the largest request that can still be permitted in full, so any "
+        "factor below 1.0 shows up as a reduction. A smaller order would pass "
+        "more easily. The rate should be read as \"asked for the full base "
+        "size under normal conditions, it was permitted in full\", not as a "
+        "claim about arbitrary order flow.",
+        "",
         "The first version of this definition counted every regular-hours "
         "reduction as a false positive and reported 28.5%. That was wrong: "
         "most of those reductions were responses to a spread several times "
