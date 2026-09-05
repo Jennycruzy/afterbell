@@ -70,6 +70,7 @@ class Guard:
             timeout=httpx.Timeout(15.0, connect=10.0),
             headers={"User-Agent": "afterbell-guard/0.1"})
         self._public_checks = PublicChecks(self._client)
+        self.last_receipt: dict | None = None
         self._min_samples = (baseline_min_samples
                              if baseline_min_samples is not None
                              else policy.min_rth_samples)
@@ -334,7 +335,9 @@ class Guard:
         receipt["reference_note"] = ctx.reference_note
         receipt["corporate_action_note"] = ctx.corporate_action_note
         receipt["query"] = req.query
-        self.ledger.append(receipt)
+        # The appended record carries seq, prev_hash and hash. An
+        # authorization has to name them, so it is kept rather than discarded.
+        self.last_receipt = self.ledger.append(receipt)
         return decision
 
 
@@ -364,6 +367,9 @@ def render(d: Decision) -> str:
     return "\n".join(lines)
 
 
+SIGNING_KEY = ROOT / "config" / "authorization.key"
+
+
 def main() -> None:
     import argparse
     ap = argparse.ArgumentParser(description="Evaluate one order against AFTERBELL.")
@@ -374,6 +380,11 @@ def main() -> None:
     ap.add_argument("--contract", default=None)
     ap.add_argument("--audit", default=None)
     ap.add_argument("--policy", default=None)
+    ap.add_argument("--authorize", default=None, metavar="PATH",
+                    help="write a signed, short-lived authorization for this "
+                         "decision. It permits what the guard permitted and "
+                         "nothing more; a supported MCP client transcribes it")
+    ap.add_argument("--signing-key", default=str(SIGNING_KEY))
     ap.add_argument("--narrate", action="store_true",
                     help="ask the optional narration provider for qualitative "
                          "prose; it cannot change the receipt or any number")
@@ -394,6 +405,16 @@ def main() -> None:
             print(f"  NARRATION GAP  {exc}")
     print(f"  receipt seq {guard.ledger.seq}  ledger head {guard.ledger.head[:16]}...")
     print(f"  policy {d.policy_sha256[:16]}...\n")
+
+    if a.authorize:
+        from afterbell.authorization import issue, load_private_key
+        auth = issue(d, req, guard.last_receipt,
+                     load_private_key(a.signing_key),
+                     cap=guard.policy.executor_max_order_usdt)
+        Path(a.authorize).write_text(auth.to_json())
+        print(f"  AUTHORIZATION  {auth.permitted_notional:,.2f} USDT "
+              f"{auth.side} {auth.symbol}, valid {auth.seconds_remaining():.0f}s")
+        print(f"                 nonce {auth.nonce}  -> {a.authorize}\n")
 
 
 if __name__ == "__main__":

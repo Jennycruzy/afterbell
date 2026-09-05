@@ -9,3 +9,6 @@ __pycache__/
 .DS_Store
 data/rehearsal.jsonl
 data/executions.jsonl
+
+# The guard's signing key never leaves this box.
+config/authorization.key
