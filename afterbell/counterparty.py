@@ -110,11 +110,25 @@ class StateMetrics:
     timed_pairs: int = 0        # adjacent events with nothing missed between
     swept_events: int = 0       # arrivals that consumed more than one maker
     prints_in_events: int = 0
+    seen_ids: int = 0           # prints observed in this state
+    span_ids: int = 0           # prints that occurred in it, from the id range
     gaps_ms: list[float] = field(default_factory=list)
     quote_qtys: list[float] = field(default_factory=list)
     hourly_volume: dict[int, float] = field(default_factory=lambda: defaultdict(float))
     bursts: int = 0
     coverage: Coverage = field(default_factory=Coverage)
+
+    @property
+    def state_coverage(self) -> float | None:
+        """Share of this state's prints that were actually recorded.
+
+        Coverage is not uniform across states — a busy session truncates a
+        fixed-size poll harder than a quiet weekend does — so this is the
+        number that decides whether two states may be compared at all.
+        """
+        if not self.span_ids:
+            return None
+        return self.seen_ids / self.span_ids
 
     @property
     def mean_sweep(self) -> float | None:
@@ -306,6 +320,14 @@ def measure(trades: list[Trade], coverage: Coverage) -> dict[str, StateMetrics]:
             m.quote_qtys.append(t.quote_qty)
             m.hourly_volume[t.when.hour] += t.quote_qty
 
+        if previous is not None:
+            # Ids are consecutive per symbol, so the distance between two
+            # observed prints is exactly how many occurred between them.
+            step = head.id - previous[-1].id
+            if step > 0:
+                m.span_ids += step
+                m.seen_ids += min(len(event), step)
+
         if previous is not None and head.id == previous[-1].id + 1:
             # Provably adjacent arrivals: nothing was missed between them.
             gap = float(head.ts_ms - previous[0].ts_ms)
@@ -367,55 +389,100 @@ def aggregate(by_symbol: dict[str, dict[str, StateMetrics]]
     }
 
 
+# Two states may only be compared when both were captured nearly completely.
+# Below this, the comparison measures the poll limit rather than the market.
+MIN_COMPARABLE_COVERAGE = 0.95
+
+
 def finding(agg: dict[str, StateAggregate],
             by_symbol: dict[str, dict[str, StateMetrics]]) -> list[str]:
-    """State what the numbers say, in the direction they actually point.
+    """State what the numbers say, or refuse to state anything.
 
-    The hypothesis worth testing was that off-hours flow is more automated. It
-    is written out here either way, from the measurements, rather than being
-    asserted in prose that the table may or may not support.
+    The hypothesis worth testing was that off-hours flow is more automated.
+    Answering it means comparing two market states, and that is only legitimate
+    when both were sampled the same way. They were not, for most of the
+    recorded period, so this refuses rather than reporting a direction it
+    cannot support — the same rule the baselines follow when a symbol has too
+    few samples.
     """
     rth, wknd = agg.get("RTH_OPEN"), agg.get("CLOSED_WEEKEND")
     if not rth or not wknd:
-        return ["Not enough states observed yet to compare."]
+        return ["### What the numbers say", "",
+                "Not enough market states observed yet to compare."]
 
+    def coverage(state: str) -> float | None:
+        seen = sum(m.seen_ids for s in by_symbol.values()
+                   if (m := s.get(state)))
+        span = sum(m.span_ids for s in by_symbol.values()
+                   if (m := s.get(state)))
+        return seen / span if span else None
+
+    cov_rth, cov_wknd = coverage("RTH_OPEN"), coverage("CLOSED_WEEKEND")
+    worst = min(c for c in (cov_rth, cov_wknd) if c is not None)
+
+    if worst < MIN_COMPARABLE_COVERAGE:
+        return [
+            "### What the numbers say",
+            "",
+            "**Not enough of the tape was captured to answer the question, and "
+            "the honest result is to say so rather than to publish a "
+            "direction.**",
+            "",
+            f"The hypothesis worth testing was that the counterparty on the "
+            f"other side of a weekend trade is another agent. Answering it "
+            f"means comparing two market states, and that is only legitimate "
+            f"if both were sampled the same way. They were not: regular hours "
+            f"were captured at {100 * (cov_rth or 0):.1f}% and the weekend at "
+            f"{100 * (cov_wknd or 0):.1f}%, because a fixed 50-print poll "
+            f"truncates a busy session far harder than a quiet weekend.",
+            "",
+            "That difference is not a detail. Measured both ways, the answer "
+            "reverses. Counting every consecutive-id pair over-samples busy "
+            "minutes, whose prints are the ones that survive truncation, and "
+            "makes regular hours look burstier than the weekend. Restricting "
+            "to minutes captured without a hole over-samples quiet minutes "
+            "instead, and makes the weekend look burstier than regular hours. "
+            "Both estimators are biased, in opposite directions, and both bite "
+            "hardest on the busiest state. A finding that flips depending on "
+            "which of two flawed estimators is chosen is not a finding.",
+            "",
+            "The cause was a recorder limit, not a market: `TRADE_LIMIT` was "
+            "50 prints per minute, which is written up as the sixth silent "
+            "failure. It was raised to 1000 on 2026-09-05 at 14:43 UTC, and "
+            "since then every cycle has been captured with no holes at all. "
+            "Once a full session and a full closure have been recorded that "
+            "way, this comparison becomes answerable and the answer will "
+            "appear here.",
+            "",
+            "The per-state tables below stand on their own — they describe "
+            "what was seen, which is a fact — but no comparison **between** "
+            "states should be read off them until coverage is even.",
+        ]
+
+    more_bursty = (wknd.burst_rate or 0) > (rth.burst_rate or 0)
     rounder = sum(
-        1 for s, states in by_symbol.items()
+        1 for states in by_symbol.values()
         if (states.get("RTH_OPEN") and states.get("CLOSED_WEEKEND")
             and (states["CLOSED_WEEKEND"].round_notional_share or 0)
             > (states["RTH_OPEN"].round_notional_share or 0)))
-    total = sum(1 for states in by_symbol.values()
-                if states.get("RTH_OPEN") and states.get("CLOSED_WEEKEND"))
-
-    more_bursty = (wknd.burst_rate or 0) > (rth.burst_rate or 0)
-    direction = ("more" if more_bursty else "less")
-
+    total = sum(1 for s in by_symbol.values()
+                if s.get("RTH_OPEN") and s.get("CLOSED_WEEKEND"))
     return [
         "### What the numbers say",
         "",
-        f"The hypothesis worth testing was that the counterparty on the other "
-        f"side of a weekend trade is another agent. **The measurements do not "
-        f"support it.**",
+        f"Both states were captured at {100 * worst:.1f}% or better, so they "
+        f"can be compared.",
         "",
-        f"Weekend arrivals are {direction} clustered than regular-hours ones — "
-        f"{100 * (wknd.burst_rate or 0):.1f}% of weekend arrivals land within "
-        f"{BURST_MS}ms of the previous one against "
-        f"{100 * (rth.burst_rate or 0):.1f}% during regular trading — and "
-        f"round-number trade sizes go **up** off-hours, not down: "
-        f"{100 * (rth.round_share or 0):.2f}% during regular hours against "
-        f"{100 * (wknd.round_share or 0):.2f}% on the weekend, higher in "
-        f"{rounder} of the {total} symbols.",
+        f"Weekend arrivals are {'more' if more_bursty else 'less'} clustered "
+        f"than regular-hours ones: {100 * (wknd.burst_rate or 0):.1f}% of "
+        f"weekend arrivals land within {BURST_MS}ms of the previous one, "
+        f"against {100 * (rth.burst_rate or 0):.1f}% during regular trading. "
+        f"Round-number trade sizes run {100 * (rth.round_share or 0):.2f}% "
+        f"during regular hours against {100 * (wknd.round_share or 0):.2f}% on "
+        f"the weekend, higher off-hours in {rounder} of {total} symbols.",
         "",
-        "Round sizes are the signature of somebody typing a number. A market "
-        "maker quoting continuously does not deal in hundreds. So the weekend "
-        "counterparty looks *less* automated than the weekday one, not more.",
-        "",
-        "That is a finding against the hypothesis, and it makes the case for "
-        "a guard stronger rather than weaker. The risk of trading a tokenized "
-        "equity while its reference market is shut was never that a "
-        "sophisticated counterparty would pick you off. It is that the price "
-        "has no discovery venue behind it for 71 hours, and the people still "
-        "trading it are the least equipped to notice.",
+        "Round sizes are the signature of somebody typing a number; a market "
+        "maker quoting continuously does not deal in hundreds.",
     ]
 
 

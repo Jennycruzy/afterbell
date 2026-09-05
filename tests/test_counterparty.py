@@ -10,6 +10,7 @@ import json
 import pytest
 
 from afterbell.counterparty import (
+    StateMetrics, finding,
     BURST_MS, Coverage, Trade, aggregate, arrivals, collect, diurnal_flatness,
     measure, render,
 )
@@ -172,3 +173,59 @@ def test_aggregate_averages_across_symbols_not_prints():
     # an unweighted mean of two equal per-symbol rates is that rate
     assert agg["RTH_OPEN"].burst_rate == pytest.approx(
         busy["RTH_OPEN"].burst_rate)
+
+
+# ---------------- the comparison refuses when it cannot be made ----------
+
+def _states(rth_cov, wknd_cov, rth_burst=0.2, wknd_burst=0.5):
+    """Two states with chosen coverage and burst rates."""
+    def mk(state, seen, span, burst):
+        m = StateMetrics(state)
+        m.seen_ids, m.span_ids = seen, span
+        m.events = 100
+        m.gaps_ms = [10.0] * int(100 * burst) + [10_000.0] * int(100 * (1 - burst))
+        m.bursts = int(100 * burst)
+        m.quote_qtys = [225.0] * 100
+        return m
+    return {"NVDABUSDT": {
+        "RTH_OPEN": mk("RTH_OPEN", int(1000 * rth_cov), 1000, rth_burst),
+        "CLOSED_WEEKEND": mk("CLOSED_WEEKEND", int(1000 * wknd_cov), 1000,
+                             wknd_burst)}}
+
+
+def test_uneven_coverage_refuses_to_state_a_direction():
+    """The real case: 24% of regular hours against 55% of the weekend."""
+    by_symbol = _states(0.24, 0.55)
+    out = "\n".join(finding(aggregate(by_symbol), by_symbol))
+    assert "Not enough of the tape was captured" in out
+    assert "24.0%" in out and "55.0%" in out
+    assert "more clustered" not in out and "less clustered" not in out
+
+
+def test_even_but_low_coverage_still_refuses():
+    """Equal sampling is not enough; it has to be nearly complete."""
+    by_symbol = _states(0.60, 0.60)
+    out = "\n".join(finding(aggregate(by_symbol), by_symbol))
+    assert "Not enough of the tape was captured" in out
+
+
+def test_complete_coverage_permits_the_comparison():
+    by_symbol = _states(1.0, 1.0, rth_burst=0.2, wknd_burst=0.5)
+    out = "\n".join(finding(aggregate(by_symbol), by_symbol))
+    assert "Not enough of the tape" not in out
+    assert "more clustered" in out          # weekend 50% vs regular 20%
+
+
+def test_the_stated_direction_follows_the_measurement():
+    by_symbol = _states(1.0, 1.0, rth_burst=0.5, wknd_burst=0.2)
+    out = "\n".join(finding(aggregate(by_symbol), by_symbol))
+    assert "less clustered" in out
+
+
+def test_per_state_coverage_is_computed_from_ids():
+    """Seen over occurred, where occurred comes from the id distance."""
+    trades = [tr(1, BASE_MS), tr(2, BASE_MS + 1000), tr(12, BASE_MS + 2000)]
+    m = measure(trades, Coverage())["RTH_OPEN"]
+    assert m.span_ids == 11               # 1->2 is 1, 2->12 is 10
+    assert m.seen_ids == 2                # one print seen at each step
+    assert m.state_coverage == pytest.approx(2 / 11)
