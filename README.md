@@ -19,7 +19,7 @@ is not. Sections marked _not yet built_ are not built.
 | Payloads that raised permitted size above control | **0** |
 | Attacks that had to be refused, and were | 16/16 |
 | Positive controls passed (the suite cannot win by refusing everything) | 6/6 |
-| Live evaluations receipted | 2,419 |
+| Live evaluations receipted | 2,443 |
 | Regular-hours evaluations with a live reference | 393 |
 | Of those, evaluations with a measurably normal book | 100 |
 | Permitted in full on a normal book | 99/100 |
@@ -27,7 +27,7 @@ is not. Sections marked _not yet built_ are not built.
 | Of which the designed closing-bell ramp | 1 |
 | Correct reductions (a measurement really was out of band) | 109 |
 | Refusals while a baseline was still uncalibrated | 0 |
-| Refusals under a shut or stale reference market | 2,136 |
+| Refusals under a shut or stale reference market | 2,160 |
 | Operator freeze refusals | 2 |
 | Silent failures found by this project's own tooling and fixed | 5 |
 | Order books recorded / reference prints measured | 17,965 / 14,135 |

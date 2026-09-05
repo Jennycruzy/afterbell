@@ -29,7 +29,7 @@ else
   fi
 fi
 
-for unit in afterbell-recorder afterbell-dashboard afterbell-guard; do
+for unit in afterbell-recorder afterbell-dashboard afterbell-guard afterbell-mcp; do
   if ! systemctl is-active --quiet "$unit"; then
     echo "$(ts) $unit not active; restarting" >> "$LOG"
     systemctl restart "$unit"

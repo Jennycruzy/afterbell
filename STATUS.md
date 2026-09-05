@@ -1,6 +1,6 @@
 # AFTERBELL — build status
 
-Updated **2026-09-05 13:50 UTC**. This file separates code that is built from
+Updated **2026-09-05 14:30 UTC**. This file separates code that is built from
 external facts that still need an account holder or destination.
 
 For the exact continuation point after the latest audit, read `HANDOFF.md`.
@@ -11,6 +11,7 @@ For the exact continuation point after the latest audit, read `HANDOFF.md`.
 |---|---|---|---|
 | Recorder | `afterbell-recorder.service` | none; Yahoo reference | active, enabled at boot |
 | Dashboard | `afterbell-dashboard.service` | none | active through HTTPS at `afterbell.site` |
+| MCP server | `afterbell-mcp.service` | none; holds no credential | active through HTTPS at `afterbell.site/mcp` |
 | Guard | `afterbell-guard.service` | no credentials; public Binance corporate-action status | active, enabled at boot |
 | Watchdog | `afterbell-watchdog.timer` | Healthchecks URL in separate mode-600 file | active, every 5 min |
 | Backup | `afterbell-backup.timer` | Google Drive remote in separate mode-600 file | active, hourly |
@@ -41,10 +42,29 @@ certificate renewal. TCP 8100 is not allowed through UFW.
   enter the decision
 - Dashboard with recorded basis/age chart, calibration table, guard state,
   policy SHA and ledger head
+- Operator freeze: a kill file checked ahead of all six protections, receipted
+  as `OPERATOR_FREEZE` and alerted on both transitions
+- Signed short-lived authorizations (Ed25519, 120s TTL, single-use nonce) and
+  the transcriber a supported MCP client runs to place exactly what they permit
+- A read-only MCP server surface: `evaluate_order` and `get_market_state`,
+  unauthenticated, receipted, reachable from any client
+- The evaluation table, generated from the adversarial corpus and the ledger
 - Systemd services, backup timer, watchdog timer, and explicit alert gaps
 - Synthetic self-contained adversarial corpus and reckless counterparty tests
 
 ## Live evidence from this box
+
+- The operator freeze was engaged against the running guard on 2026-09-05 and
+  produced receipt 2404, `BLOCK` / `OPERATOR_FREEZE` / 0.0 permitted, on a
+  request the same guard had been reducing to 600 USDT a minute earlier.
+  Removing the file restored the previous behaviour on the next cycle.
+- A live authorization was issued for a real decision: 5,000 USDT requested,
+  600 permitted by the guard, narrowed to 25 by the hand-chosen execution
+  ceiling. The transcriber refused a tampered copy on the signature, refused a
+  `--notional` above the permitted size, and refused the artifact again once
+  its 120s TTL passed.
+- The MCP server answered `$5,000 NVDABUSDT BUY` over public HTTPS with
+  `REDUCE` to 600 USDT, naming the weekend closure, in 1.1s.
 
 - Binance REST ping and `NVDABUSDT` ticker: passed.
 - Binance public bStocks status for the canonical NVDAB contract: `TRADING`.
