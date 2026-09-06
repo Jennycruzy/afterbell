@@ -9,11 +9,11 @@ from afterbell.adversary import (
     escalation_held, run_corpus, run_escalation,
 )
 from afterbell.guard import OrderRequest, Side, Verdict, evaluate
-from afterbell.policy import load
+from tests.test_guard import read_only_test_policy
 
 import pytest
 
-POL = load()
+POL = read_only_test_policy()
 
 # The corpus runs against the same fixed snapshots the demo uses, so a green
 # suite and a clean demo are the same claim rather than two.

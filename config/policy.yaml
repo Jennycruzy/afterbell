@@ -165,4 +165,4 @@ exposure:
   max_gross_usdt: 100.0
   snapshot_max_age_s: 120.0
   position_public_key: /etc/afterbell/position.pub
-  require_snapshot: false
+  require_snapshot: true

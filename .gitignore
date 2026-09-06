@@ -12,3 +12,7 @@ data/executions.jsonl
 
 # The guard's signing key never leaves this box.
 config/authorization.key
+
+# Position-attestor evidence and snapshots can contain account information.
+data/account-export.json
+data/position-snapshot.json

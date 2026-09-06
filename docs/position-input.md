@@ -1,25 +1,41 @@
 # Trusted position input and execution activation
 
-AFTERBELL does not fetch account positions. The D5/P7 aggregate-exposure gate
-accepts only a short-lived position snapshot signed by a trusted supported
-client. This is an account-state trust boundary, not a market-data setting.
+AFTERBELL does not hold Binance credentials or fetch private account positions.
+The D5/P7 gate accepts only a short-lived snapshot produced by the root-operated
+balance reporter from a Binance Agent OS `spot.getAccount` export.
 
 The safe order is:
 
-1. Obtain the Ed25519 public key from the supported-client position publisher.
-   Keep the matching private key only in that publisher. Do not commit it, put
-   it in AFTERBELL, or pass a Binance OAuth token to Python.
+1. Generate a dedicated Ed25519 keypair for the balance reporter. Keep its
+   private key root-only at `/etc/afterbell/position-attestor.key`; do not
+   commit it, reuse a Binance key, or pass a Binance OAuth token to Python.
 2. Install the public key on the VPS as `/etc/afterbell/position.pub`,
    owned by `root:root` and mode `0644`. Record its fingerprint
    out of band and verify it with the account holder before trusting snapshots.
-3. Establish the publisher that emits a fresh signed JSON snapshot at least
-   every 120 seconds. Its signed fields are exactly:
+3. Call the read-only Binance Agent OS `spot.getAccount` tool and save an
+   evidence envelope containing the exact result and capture time:
+
+   ```json
+   {"tool":"spot.getAccount","captured_at":"2026-09-06T00:00:00+00:00","result":{"balances":[]}}
+   ```
+
+   Invoke the reporter within 120 seconds:
+
+   ```sh
+   python -m afterbell.balance_reporter \
+     --account-export data/account-export.json \
+     --private-key /etc/afterbell/position-attestor.key \
+     --output data/position-snapshot.json
+   ```
+
+   It rejects stale or malformed evidence, fetches public Binance prices,
+   includes all five canonical bStock symbols, and emits signed JSON:
 
    ```json
    {
      "as_of": "2026-09-06T00:00:00+00:00",
      "positions": {"NVDABUSDT": 0.0},
-     "source": "supported-client",
+     "source": "binance-agent-os/spot.getAccount;sha256=<evidence digest>",
      "signature": "ed25519:<hex>"
    }
    ```
@@ -41,7 +57,7 @@ The safe order is:
    and only with fresh account-holder approval, perform the minimum valid D1
    test through the supported client and retain its order/fill receipt.
 
-The shipped policy intentionally remains `executor.enabled: false`,
-`exposure.require_snapshot: false`, and read-only. On the current VPS the
-trusted public key and a live snapshot publisher are not configured yet, so no
-funding or order test is ready to run.
+The deployed policy keeps `executor.enabled: false` and is read-only, but now
+sets `exposure.require_snapshot: true`. The dedicated attestor public key is
+installed; every actionable evaluation must carry a fresh reporter snapshot.
+Funding and an order test remain separate, explicitly approved operations.

@@ -4,6 +4,7 @@ Contexts are constructed explicitly so each protection can be driven to a known
 state. Nothing here stands in for a live market: the production path builds a
 MarketContext only from measured data, and refuses when a field is missing.
 """
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -17,7 +18,15 @@ from afterbell.measure import Book, Level, Side
 from afterbell.policy import load
 from afterbell.resolver import resolve, verify_contract
 
-POL = load()
+def read_only_test_policy():
+    """Legacy gate-isolation scenarios do not exercise mandatory P7."""
+    policy = load()
+    raw = dict(policy.raw)
+    raw["exposure"] = dict(raw["exposure"]) | {"require_snapshot": False}
+    return replace(policy, raw=raw)
+
+
+POL = read_only_test_policy()
 NVDA_CONTRACT = "0x02Fca66C1D1aFB4E2A7884261eB00F63598a7436"
 
 
