@@ -27,8 +27,14 @@ sits behind the nginx that already terminates TLS for the dashboard.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import logging
+import os
+from pathlib import Path
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -37,17 +43,32 @@ from typing import Any
 from afterbell.clock import format_age
 from afterbell.engine import Guard
 from afterbell.guard import OrderRequest
+from afterbell.positions import PositionSnapshotError, parse as parse_position_snapshot
 from afterbell.measure import Side
 from afterbell.policy import load as load_policy
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "afterbell", "version": "0.1.0"}
 MAX_BODY = 64 * 1024
+MAX_BATCH_MESSAGES = 20
+
+# The reverse proxy applies the first rate limit by public source address. The
+# application repeats the bound because this service can also be reached by a
+# local client, and because a batch must pay for every message it contains.
+# The daily counter is persisted so a service restart cannot reset the bound
+# on MCP-originated receipt growth. The monitor's own receipts are not subject
+# to this quota; its fixed service cadence is a separate operational concern.
+MCP_RATE_WINDOW_S = 60
+MCP_MAX_RATE_UNITS = 30
+MCP_DAILY_EVALUATION_LIMIT = 1000
+MCP_QUOTA_PATH = (Path(__file__).resolve().parent.parent
+                  / "data" / "mcp-quota.json")
 
 # JSON-RPC codes. -32000 is the generic server error the spec reserves for
 # implementation-defined failures.
 PARSE_ERROR, INVALID_REQUEST = -32700, -32600
 METHOD_NOT_FOUND, INVALID_PARAMS, SERVER_ERROR = -32601, -32602, -32000
+QUOTA_EXCEEDED = -32029
 
 TOOLS = [
     {
@@ -70,6 +91,19 @@ TOOLS = [
                 "query": {"type": "string",
                           "description": "The request in the words the user "
                                          "actually used, e.g. 'buy Nvidia'"},
+                "position_snapshot": {
+                    "type": "object",
+                    "description": (
+                        "Signed supported-client account positions in USDT; "
+                        "required when the policy requires D5 evidence."),
+                    "properties": {
+                        "as_of": {"type": "string"},
+                        "positions": {"type": "object"},
+                        "source": {"type": "string"},
+                        "signature": {"type": "string"},
+                    },
+                    "required": ["as_of", "positions", "source", "signature"],
+                },
             },
             "required": ["symbol", "notional"],
         },
@@ -92,6 +126,183 @@ TOOLS = [
 
 class ToolError(RuntimeError):
     """A bad request from the caller, reported as a tool error not a crash."""
+
+
+@dataclass(frozen=True)
+class QuotaDecision:
+    """The result of reserving bounded MCP work."""
+
+    allowed: bool
+    reason: str = ""
+    retry_after_s: int = 0
+
+
+class QuotaStoreError(RuntimeError):
+    """The persistent quota state is unavailable or invalid."""
+
+
+class MCPQuota:
+    """Bound MCP work without putting limits into the safety policy.
+
+    request_units limits expensive protocol work in a short window;
+    evaluations reserves the durable daily budget for calls that will write
+    a decision receipt. The quota is reserved before a handler runs, so a
+    caller cannot spend the budget by sending a large batch or by repeatedly
+    provoking an evaluation failure.
+
+    Only the global daily count is persisted. Per-client rate state is bounded
+    in memory and the public nginx layer supplies the source-address limit;
+    this keeps the quota file small even if many distinct clients connect.
+    """
+
+    def __init__(self, path: str | Path = MCP_QUOTA_PATH, *,
+                 rate_window_s: int = MCP_RATE_WINDOW_S,
+                 max_rate_units: int = MCP_MAX_RATE_UNITS,
+                 daily_evaluation_limit: int = MCP_DAILY_EVALUATION_LIMIT,
+                 max_clients: int = 4096) -> None:
+        if rate_window_s <= 0 or max_rate_units <= 0:
+            raise ValueError("MCP rate limits must be positive")
+        if daily_evaluation_limit < 0 or max_clients <= 0:
+            raise ValueError("MCP quota limits are invalid")
+        self.path = Path(path)
+        self.rate_window_s = int(rate_window_s)
+        self.max_rate_units = int(max_rate_units)
+        self.daily_evaluation_limit = int(daily_evaluation_limit)
+        self.max_clients = int(max_clients)
+        self._lock = threading.Lock()
+        # fingerprint -> (window_start, used_units), kept bounded below.
+        self._clients: OrderedDict[str, tuple[int, int]] = OrderedDict()
+
+    @staticmethod
+    def _fingerprint(client_key: str) -> str:
+        # The quota artifact does not need to retain caller IP addresses.
+        return hashlib.sha256(client_key.encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def _day(now: float) -> str:
+        return datetime.fromtimestamp(now, timezone.utc).date().isoformat()
+
+    def _retry_after_window(self, now: float) -> int:
+        end = (int(now // self.rate_window_s) + 1) * self.rate_window_s
+        return max(1, int(end - now + 0.999999))
+
+    @staticmethod
+    def _retry_after_day(now: float) -> int:
+        current = datetime.fromtimestamp(now, timezone.utc)
+        tomorrow = datetime.combine(
+            current.date() + timedelta(days=1), datetime.min.time(),
+            tzinfo=timezone.utc)
+        return max(1, int(tomorrow.timestamp() - now + 0.999999))
+
+    def _read_daily_count(self, day: str) -> int:
+        if not self.path.exists():
+            return 0
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise QuotaStoreError(
+                f"MCP quota state could not be read: {exc}") from exc
+        if (not isinstance(raw, dict)
+                or set(raw) != {"day", "evaluations"}
+                or not isinstance(raw.get("day"), str)
+                or type(raw.get("evaluations")) is not int
+                or raw["evaluations"] < 0):
+            raise QuotaStoreError("MCP quota state is malformed")
+        if raw["day"] != day:
+            return 0
+        return raw["evaluations"]
+
+    def _write_daily_count(self, day: str, count: int) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_name(
+            f".{self.path.name}.{os.getpid()}.tmp")
+        try:
+            with temporary.open("w", encoding="utf-8") as fh:
+                json.dump({"day": day, "evaluations": count}, fh,
+                          sort_keys=True)
+                fh.write("\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(temporary, self.path)
+        except OSError as exc:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+            raise QuotaStoreError(
+                f"MCP quota state could not be written: {exc}") from exc
+
+    def _reserve_rate(self, client_key: str, units: int,
+                      now: float) -> tuple[bool, int]:
+        fingerprint = self._fingerprint(client_key)
+        window = int(now // self.rate_window_s)
+        previous = self._clients.get(fingerprint)
+        used = previous[1] if previous and previous[0] == window else 0
+        if used + units > self.max_rate_units:
+            return False, self._retry_after_window(now)
+        self._clients[fingerprint] = (window, used + units)
+        self._clients.move_to_end(fingerprint)
+        while len(self._clients) > self.max_clients:
+            self._clients.popitem(last=False)
+        return True, 0
+
+    def admit(self, client_key: str, *, request_units: int,
+              evaluations: int, now: float | None = None) -> QuotaDecision:
+        """Reserve one HTTP request before dispatching it.
+
+        evaluations is deliberately separate from request_units:
+        get_market_state consumes rate budget but does not grow the
+        receipt ledger, while one batch may consume many daily evaluations.
+        """
+        if request_units <= 0 or evaluations < 0:
+            raise ValueError("MCP quota reservation values are invalid")
+        now = time.time() if now is None else float(now)
+        with self._lock:
+            allowed, retry = self._reserve_rate(
+                str(client_key or "unknown"), int(request_units), now)
+            if not allowed:
+                return QuotaDecision(
+                    False,
+                    "MCP request rate exceeded; try again later",
+                    retry)
+
+            if evaluations:
+                day = self._day(now)
+                used = self._read_daily_count(day)
+                if used + evaluations > self.daily_evaluation_limit:
+                    return QuotaDecision(
+                        False,
+                        "daily MCP evaluation quota exhausted; try after "
+                        "the next UTC midnight",
+                        self._retry_after_day(now))
+                # Reserve before dispatch. A failed evaluation therefore
+                # cannot be retried indefinitely without consuming quota.
+                self._write_daily_count(day, used + evaluations)
+            return QuotaDecision(True)
+
+
+def _tool_name(message: Any) -> str | None:
+    if not isinstance(message, dict) or message.get("method") != "tools/call":
+        return None
+    params = message.get("params")
+    return params.get("name") if isinstance(params, dict) else None
+
+
+def _evaluation_count(message: Any) -> int:
+    """Count receipt-writing calls in a single message or batch."""
+    messages = message if isinstance(message, list) else [message]
+    return sum(1 for item in messages
+               if isinstance(item, dict)
+               and item.get("id") is not None
+               and _tool_name(item) == "evaluate_order")
+
+
+def _request_units(message: Any) -> int:
+    """Charge at least one unit, and charge every item in a batch."""
+    return max(1, len(message)) if isinstance(message, list) else 1
+
+
+_QUOTA = MCPQuota()
 
 
 # Baselines are medians over a rolling window of every recorded book, and
@@ -126,6 +337,12 @@ def evaluate_order(args: dict[str, Any]) -> dict[str, Any]:
     symbol = str(args.get("symbol") or "").upper().strip()
     if not symbol:
         raise ToolError("symbol is required")
+    position_snapshot = None
+    if args.get("position_snapshot") is not None:
+        try:
+            position_snapshot = parse_position_snapshot(args["position_snapshot"])
+        except PositionSnapshotError as exc:
+            raise ToolError(f"invalid position_snapshot: {exc}") from exc
     try:
         notional = float(args["notional"])
     except (KeyError, TypeError, ValueError):
@@ -140,7 +357,7 @@ def evaluate_order(args: dict[str, Any]) -> dict[str, Any]:
     req = OrderRequest(symbol, Side(side), notional,
                        query=str(args.get("query") or symbol),
                        evaluation_source="mcp_server")
-    d = guard.evaluate(req)
+    d = guard.evaluate(req, position_snapshot=position_snapshot)
     ctx = d.context
     return {
         "verdict": d.verdict.value,
@@ -205,8 +422,10 @@ HANDLERS = {"evaluate_order": evaluate_order,
             "get_market_state": get_market_state}
 
 
-def handle(message: dict[str, Any]) -> dict[str, Any] | None:
+def handle(message: Any) -> dict[str, Any] | None:
     """One JSON-RPC message in, one response out. None means a notification."""
+    if not isinstance(message, dict):
+        return _error(None, INVALID_REQUEST, "message must be an object")
     if message.get("jsonrpc") != "2.0":
         return _error(message.get("id"), INVALID_REQUEST,
                       "jsonrpc must be '2.0'")
@@ -272,13 +491,37 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def _send(self, code: int, body: bytes,
-              ctype: str = "application/json") -> None:
+              ctype: str = "application/json",
+              headers: dict[str, str] | None = None) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _client_key(self) -> str:
+        # nginx overwrites X-Real-IP before proxying. The service is loopback
+        # only, so a direct local caller cannot turn this into a public trust
+        # boundary; the persisted global quota remains the hard bound.
+        return (self.headers.get("X-Real-IP")
+                or self.client_address[0]
+                or "unknown").strip()
+
+    def _quota_failure(self, message: Any, decision: QuotaDecision) -> None:
+        error = lambda mid: _error(mid, QUOTA_EXCEEDED, decision.reason)
+        if isinstance(message, list):
+            replies = [error(item.get("id"))
+                       for item in message
+                       if isinstance(item, dict) and item.get("id") is not None]
+            body = json.dumps(replies or [error(None)]).encode()
+        else:
+            mid = message.get("id") if isinstance(message, dict) else None
+            body = json.dumps(error(mid)).encode()
+        self._send(429, body, headers={
+            "Retry-After": str(decision.retry_after_s)})
 
     def do_GET(self) -> None:
         if self.path == "/healthz":
@@ -293,7 +536,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self._send(400, json.dumps(
                 _error(None, PARSE_ERROR, "bad Content-Length")).encode())
-        if length > MAX_BODY:
+        if length < 0 or length > MAX_BODY:
             return self._send(413, json.dumps(
                 _error(None, INVALID_REQUEST, "request too large")).encode())
         raw = self.rfile.read(length)
@@ -303,16 +546,34 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, json.dumps(
                 _error(None, PARSE_ERROR, str(exc))).encode())
 
+        if isinstance(message, list) and len(message) > MAX_BATCH_MESSAGES:
+            return self._send(413, json.dumps(_error(
+                None, INVALID_REQUEST,
+                f"batch exceeds {MAX_BATCH_MESSAGES} messages")).encode())
+        if not isinstance(message, (dict, list)):
+            return self._send(400, json.dumps(
+                _error(None, INVALID_REQUEST, "message must be an object")
+            ).encode())
+
+        try:
+            quota = _QUOTA.admit(
+                self._client_key(),
+                request_units=_request_units(message),
+                evaluations=_evaluation_count(message))
+        except QuotaStoreError:
+            logging.getLogger("afterbell.mcp_server").exception(
+                "MCP quota store unavailable")
+            return self._send(503, json.dumps(_error(
+                None, SERVER_ERROR,
+                "MCP quota is unavailable; request refused")).encode())
+        if not quota.allowed:
+            return self._quota_failure(message, quota)
+
         if isinstance(message, list):        # a batch
             replies = [r for r in (handle(m) for m in message) if r is not None]
             if not replies:
                 return self._send(202, b"")
             return self._send(200, json.dumps(replies, default=str).encode())
-
-        if not isinstance(message, dict):
-            return self._send(400, json.dumps(
-                _error(None, INVALID_REQUEST, "message must be an object")
-            ).encode())
 
         reply = handle(message)
         if reply is None:

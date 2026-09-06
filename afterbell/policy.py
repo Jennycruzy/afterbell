@@ -133,6 +133,28 @@ class Policy:
                     .get("require_manual_invocation", True))
 
     @property
+    def exposure_max_gross_usdt(self) -> float:
+        return float(self.raw.get("exposure", {})
+                     .get("max_gross_usdt", 0.0))
+
+    @property
+    def exposure_snapshot_max_age_s(self) -> float:
+        return float(self.raw.get("exposure", {})
+                     .get("snapshot_max_age_s", 0.0))
+
+    @property
+    def exposure_position_public_key(self) -> Path:
+        configured = str(self.raw.get("exposure", {})
+                         .get("position_public_key", "")).strip()
+        path = Path(configured)
+        return path if path.is_absolute() else self.path.parent / path
+
+    @property
+    def exposure_requires_snapshot(self) -> bool:
+        return bool(self.raw.get("exposure", {})
+                    .get("require_snapshot", False))
+
+    @property
     def kill_file(self) -> Path:
         return Path(str(self.raw["operator_freeze"]["kill_file"]))
 
@@ -151,7 +173,7 @@ class Policy:
 
 _REQUIRED = ("version", "status", "base_notional_usdt", "calibration", "clock",
              "liquidity", "basis", "corporate_actions", "registry_sha256",
-             "verdicts", "operator_freeze")
+             "verdicts", "operator_freeze", "exposure")
 
 
 def load(path: str | Path | None = None) -> Policy:
@@ -223,6 +245,30 @@ def load(path: str | Path | None = None) -> Policy:
                     "executor is enabled with an empty symbol allowlist; an "
                     "empty allowlist must block everything, and silently "
                     "trading nothing is not what an operator would expect")
+
+    # P7 is an account-wide ceiling, so it is not allowed to disappear just
+    # Every policy carries explicit D5 limits. Read-only operation may leave
+    # the input requirement off while the supported-client position source is
+    # being configured; enabling execution may not.
+    try:
+        max_gross = pol.exposure_max_gross_usdt
+        max_age = pol.exposure_snapshot_max_age_s
+    except (TypeError, ValueError) as exc:
+        raise PolicyError("exposure limits must be numeric") from exc
+    if not math.isfinite(max_gross) or max_gross <= 0:
+        raise PolicyError(
+            "exposure max_gross_usdt must be a finite positive number")
+    if not math.isfinite(max_age) or max_age <= 0:
+        raise PolicyError(
+            "exposure snapshot_max_age_s must be a finite positive number")
+    if pol.executor_enabled and not pol.exposure_requires_snapshot:
+        raise PolicyError(
+            "executor is enabled while exposure.require_snapshot is false; "
+            "an executable policy must require a verified position snapshot")
+    if pol.executor_enabled and not pol.exposure_position_public_key.exists():
+        raise PolicyError(
+            "executor is enabled but the exposure position public key is "
+            f"missing: {pol.exposure_position_public_key}")
 
     for name, factor in pol.clock_factors.items():
         if not 0.0 <= factor <= 1.0:

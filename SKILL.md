@@ -73,6 +73,7 @@ python -m afterbell.engine --symbol NVDABUSDT --notional 5000 --query "buy Nvidi
     Corporate action WARN    f=1.000  Binance processing status TRADING verified; advance notice is not guaranteed
     Instrument ID    PASS    f=1.000  NVDAB resolved to NVDA via BTech Holdings Limited
     Contract check   PASS    f=1.000  venue-internal spot pair; canonical registry applies
+    Aggregate exposure PASS f=1.000  no signed position snapshot supplied; P7 is not required by the current read-only policy
 
   DECISION  BLOCK     requested 5,000 -> allowed 0 USDT
   BINDING   market closure, liquidity
@@ -90,7 +91,7 @@ Day falls on the Monday.
 text of record. Every evaluation — including every refusal — appends a
 hash-chained receipt carrying the policy checksum that produced it.
 
-## The six protections
+## The seven protections
 
 | | Asks |
 |---|---|
@@ -100,6 +101,7 @@ hash-chained receipt carrying the policy checksum that produced it.
 | **Corporate-action status** | Does Binance report a processing restriction or corporate-action message? |
 | **Instrument identity** | What is this, exactly — issuer, instrument class, network, underlying? |
 | **Contract verification** | Is this contract address the canonical one? |
+| **Aggregate exposure** | Does a fresh, trusted account snapshot leave room under the gross ceiling? |
 
 Factors combine by `min()`, never by product. Multiplying them would invent a
 precision the measurements do not have, and would let three merely-cautious
@@ -147,6 +149,24 @@ blocks a reported restriction, and marks a clear current status as partial
 because Binance does not guarantee advance notice. Alpaca is never silently
 substituted for Yahoo, and the recorder and safety evaluator hold no Binance or
 Alpaca credential.
+
+The D5/P7 aggregate exposure check uses signed USDT net-position notionals from
+a supported client. Positive values are long, negative values are short, and
+all symbols count toward the gross ceiling. Snapshots are Ed25519-verified and
+must be no older than snapshot_max_age_s; the receipt stores only the snapshot
+digest and source, not raw positions. The shipped policy remains read-only with
+require_snapshot false because this VPS has no trusted position key or live
+position feed. An executable policy must set require_snapshot true and
+configure position_public_key. Configure and verify that key and the live
+signed snapshot publisher before funding the connected account; the activation
+runbook is [`docs/position-input.md`](docs/position-input.md).
+
+The public MCP surface has a separate resource bound from the safety policy.
+The deployed implementation caps batches at 20 messages, charges request work
+against a 30-unit per-client/60-second budget, and persists a 1,000
+evaluate_order-calls-per-UTC-day quota in data/mcp-quota.json. Quota rejections
+return HTTP 429 with Retry-After and never reach the guard. Nginx applies the
+source-address limiter before the application.
 
 ## Status and honesty
 

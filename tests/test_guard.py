@@ -214,7 +214,7 @@ def test_receipt_carries_reference_age_and_both_checksums():
     assert r["market_state"] == "CLOSED_WEEKEND"
     assert r["policy_sha256"] == POL.sha256
     assert len(r["registry_sha256"]) == 64
-    assert set(r["gates"]) == {"P1", "P2", "P3", "P4", "P5", "P6"}
+    assert set(r["gates"]) == {"P1", "P2", "P3", "P4", "P5", "P6", "P7"}
     assert r["decision"] in {"PASS", "WARN", "REDUCE", "BLOCK"}
 
 

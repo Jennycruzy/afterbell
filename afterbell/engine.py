@@ -32,6 +32,7 @@ from afterbell.instruments import REGISTRY
 from afterbell.ledger import Ledger
 from afterbell.measure import Book, Side
 from afterbell.policy import Policy, load as load_policy
+from afterbell.positions import PositionSnapshot, parse as parse_position_snapshot
 from afterbell.public_checks import PublicCheckUnavailable, PublicChecks
 from afterbell.reference import (
     YAHOO_CHART, ReferenceUnavailable, from_snapshot, from_yahoo,
@@ -271,7 +272,8 @@ class Guard:
     # ---------------- evaluation ----------------
 
     def build_context(self, req: OrderRequest,
-                      at: datetime | None = None) -> MarketContext:
+                      at: datetime | None = None,
+                      position_snapshot: PositionSnapshot | None = None) -> MarketContext:
         """Assemble the context, optionally as of a stated time.
 
         `at` moves the CLOCK only. The book, the pair status and the reference
@@ -323,13 +325,16 @@ class Guard:
             corporate_action_checked=corp_checked,
             corporate_action_lookahead_checked=corp_lookahead_checked,
             corporate_action_source=corp_source,
-            corporate_action_note=corp_note)
+            corporate_action_note=corp_note,
+            position_snapshot=position_snapshot)
         return ctx
 
-    def evaluate(self, req: OrderRequest, ctx: MarketContext | None = None
+    def evaluate(self, req: OrderRequest, ctx: MarketContext | None = None,
+                 position_snapshot: PositionSnapshot | None = None
                  ) -> Decision:
         """Evaluate and write the receipt. Refusals are receipted too."""
-        ctx = ctx or self.build_context(req)
+        ctx = ctx or self.build_context(
+            req, position_snapshot=position_snapshot)
         decision = guard_evaluate(req, ctx, self.policy)
         receipt = to_receipt(decision, req)
         receipt["reference_note"] = ctx.reference_note
@@ -384,6 +389,9 @@ def main() -> None:
                     help="write a signed, short-lived authorization for this "
                          "decision. It permits what the guard permitted and "
                          "nothing more; a supported MCP client transcribes it")
+    ap.add_argument("--position-snapshot", default=None, metavar="PATH",
+                    help="signed supported-client position snapshot used by "
+                         "the aggregate exposure ceiling")
     ap.add_argument("--signing-key", default=str(SIGNING_KEY))
     ap.add_argument("--narrate", action="store_true",
                     help="ask the optional narration provider for qualitative "
@@ -398,7 +406,11 @@ def main() -> None:
     req = OrderRequest(a.symbol, Side(a.side), a.notional,
                        query=a.query or a.symbol,
                        observed_contract=a.contract, audit_verdict=a.audit)
-    d = guard.evaluate(req)
+    position_snapshot = None
+    if a.position_snapshot:
+        position_snapshot = parse_position_snapshot(
+            Path(a.position_snapshot).read_text())
+    d = guard.evaluate(req, position_snapshot=position_snapshot)
     print(render(d))
     if a.narrate:
         from afterbell.rationale import NarrationUnavailable, Narrator

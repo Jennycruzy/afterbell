@@ -1,4 +1,4 @@
-"""The guard: six protections, one sizing function, no override.
+"""The guard: seven protections, one sizing function, no override.
 
 Law 5: nothing in this module asks a language model anything. Every number is
 computed here from measured inputs. The model narrates the result afterwards
@@ -15,7 +15,7 @@ is provably risk-reducing, which is what makes it safe to grant autonomy to.
 Law 9: during regular hours with a live reference, tight spreads and normal
 depth, this passes cleanly and stays out of the way.
 
-The operator freeze runs ahead of all six protections. It is the only control
+The operator freeze runs ahead of all seven protections. It is the only control
 here that is not a measurement: a file exists or it does not, and while it does
 this module returns BLOCK without consulting the market at all.
 """
@@ -32,6 +32,9 @@ from afterbell.instruments import registry_sha256
 from afterbell.measure import (
     Book, BookProblem, Side, WalkResult, basis_bps, depth_within,
     half_spread_bps, walk_cost_bps,
+)
+from afterbell.positions import (
+    PositionSnapshot, PositionSnapshotError, load_public_key, verify_snapshot,
 )
 from afterbell.policy import Policy
 from afterbell.resolver import ContractCheck, Resolution
@@ -102,6 +105,10 @@ class MarketContext:
     corporate_action_lookahead_checked: bool = True
     corporate_action_source: str | None = None
     corporate_action_note: str | None = None
+
+    # D5: signed account state supplied by the supported client.  There is no
+    # live position feed in AFTERBELL.
+    position_snapshot: PositionSnapshot | None = None
 
     @property
     def reference_age_s(self) -> float | None:
@@ -450,6 +457,98 @@ def gate_canonical(ctx: MarketContext) -> GateResult:
                       "returned a safe result", common)
 
 
+# ----------------------------- P7 -----------------------------
+def _max_exposure_order(snapshot: PositionSnapshot, req: OrderRequest,
+                        cap: float) -> tuple[float, float, float, float]:
+    """Return max order, current gross, projected gross, and current position.
+    The ceiling applies to gross net-position notionals. A reducing order may
+    close an existing position even when the account is already above the
+    ceiling; it may not turn that reduction into a new short/long position.
+    """
+    symbol = req.symbol.upper()
+    current = float(snapshot.positions.get(symbol, 0.0))
+    gross = snapshot.gross_exposure_usdt
+    other = gross - abs(current)
+    direction = 1.0 if req.side is Side.BUY else -1.0
+    # Spot SELLs cannot be used to create a position from zero. A signed
+    # snapshot still handles a short account conservatively if one is supplied.
+    if req.side is Side.SELL and current == 0.0:
+        return 0.0, gross, gross, current
+    room_for_symbol = cap - other
+    reducing = current * direction < 0.0
+    if room_for_symbol < 0.0:
+        max_order = abs(current) if reducing else 0.0
+    elif reducing:
+        max_order = min(abs(current), room_for_symbol + abs(current))
+    else:
+        max_order = max(0.0, room_for_symbol - abs(current))
+    max_order = max(0.0, float(max_order))
+    projected = other + abs(current + direction * req.notional)
+    return max_order, gross, projected, current
+
+
+def gate_exposure(ctx: MarketContext, req: OrderRequest,
+                  pol: Policy) -> GateResult:
+    """P7: cap new gross account exposure from signed account state."""
+    snapshot = ctx.position_snapshot
+    if snapshot is None:
+        measurements = {
+            "exposure_check": ("REQUIRED_BUT_MISSING"
+                               if pol.exposure_requires_snapshot
+                               else "NOT_REQUIRED"),
+            "max_gross_usdt": pol.exposure_max_gross_usdt,
+        }
+        if pol.exposure_requires_snapshot:
+            return GateResult(
+                "P7", Verdict.BLOCK, 0.0,
+                "no signed position snapshot was supplied; aggregate exposure "
+                "cannot be measured and new exposure is refused",
+                measurements)
+        return GateResult(
+            "P7", Verdict.PASS, 1.0,
+            "no signed position snapshot supplied; P7 is not required by the "
+            "current read-only policy",
+            measurements)
+    try:
+        public_key = load_public_key(pol.exposure_position_public_key)
+        age_s = verify_snapshot(
+            snapshot, public_key, now=ctx.clock.ts,
+            max_age_s=pol.exposure_snapshot_max_age_s)
+    except PositionSnapshotError as exc:
+        return GateResult(
+            "P7", Verdict.BLOCK, 0.0,
+            f"position snapshot refused: {exc}",
+            {"exposure_check": "UNVERIFIED",
+             "max_gross_usdt": pol.exposure_max_gross_usdt})
+    max_order, gross, projected, current = _max_exposure_order(
+        snapshot, req, pol.exposure_max_gross_usdt)
+    factor = min(1.0, max_order / pol.base_notional)
+    measurements = {
+        "exposure_check": "VERIFIED",
+        "snapshot_digest": snapshot.digest,
+        "snapshot_source": snapshot.source,
+        "snapshot_age_s": age_s,
+        "gross_exposure_usdt": gross,
+        "max_gross_usdt": pol.exposure_max_gross_usdt,
+        "symbol_position_usdt": current,
+        "requested_projected_gross_usdt": projected,
+        "max_order_usdt": max_order,
+    }
+    if max_order <= 0.0:
+        return GateResult(
+            "P7", Verdict.BLOCK, 0.0,
+            f"gross exposure {gross:,.2f} USDT leaves no room for this "
+            f"{req.side.value} {req.symbol} request under the "
+            f"{pol.exposure_max_gross_usdt:,.2f} USDT account ceiling",
+            measurements)
+    verdict = Verdict.PASS if factor >= 1.0 else Verdict.REDUCE
+    detail = (
+        f"gross exposure {gross:,.2f} USDT; {req.side.value} {req.symbol} "
+        f"permits up to {max_order:,.2f} USDT under the "
+        f"{pol.exposure_max_gross_usdt:,.2f} USDT account ceiling")
+    return GateResult("P7", verdict, factor, detail, measurements)
+
+
 # ----------------------------- the sizing function -----------------------------
 
 def evaluate(req: OrderRequest, ctx: MarketContext, pol: Policy) -> Decision:
@@ -483,6 +582,7 @@ def evaluate(req: OrderRequest, ctx: MarketContext, pol: Policy) -> Decision:
         gate_corporate_action(ctx, pol),
         gate_resolution(ctx, req),
         gate_canonical(ctx),
+        gate_exposure(ctx, req, pol),
     ]
 
     blocking = [g for g in gates if g.is_hard_block]

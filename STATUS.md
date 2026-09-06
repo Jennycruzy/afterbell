@@ -1,6 +1,6 @@
 # AFTERBELL — build status
 
-Updated **2026-09-05 16:56 UTC**. This file separates code that is built from
+Updated **2026-09-06 17:57 UTC**. This file separates code that is built from
 external facts that still need an account holder or destination.
 
 The detailed continuation handoff is intentionally local-only and untracked; this file records the public status.
@@ -31,7 +31,10 @@ certificate renewal. TCP 8100 is not allowed through UFW.
   `exchangeInfo` status, Yahoo regular-session reference data, and gap markers
 - Market clock and `REFERENCE_AGE` over the checked-in 2026 calendar
 - Measurements: spread, ±1% depth, walk cost, basis, RTH-only baselines
-- Policy loader and monotone six-check safety evaluator with signed policy SHA
+- Policy loader and monotone seven-check safety evaluator with signed policy SHA
+- D5/P7 aggregate exposure ceiling: signed, fresh position snapshots cap
+  gross net-position exposure across symbols; executable policies require this
+  input
 - Hash-chained JSONL receipts for decisions and refusals
 - Live public Binance bStocks status and token-audit adapters
 - Binance-native corporate-action status checks; current status is
@@ -42,12 +45,15 @@ certificate renewal. TCP 8100 is not allowed through UFW.
   enter the decision
 - Dashboard with recorded basis/age chart, calibration table, guard state,
   policy SHA and ledger head
-- Operator freeze: a kill file checked ahead of all six protections, receipted
+- Operator freeze: a kill file checked ahead of all seven protections, receipted
   as `OPERATOR_FREEZE` and alerted on both transitions
 - A read-only MCP server surface: `evaluate_order` and `get_market_state`,
   unauthenticated, receipted, reachable from any client
 - The evaluation table, generated from the adversarial corpus and the ledger
-- Systemd services, backup timer, watchdog timer, and explicit alert gaps
+- MCP hardening is deployed: batches are capped at 20 messages, request work is
+  rate-bounded, evaluate_order receipt growth has a persisted daily quota, and
+  nginx applies a source-address limiter before the application.
+- Systemd services, backup timer, watchdog timer, and external alert transition proof
 - Synthetic self-contained adversarial corpus and reckless counterparty tests
 
 ## Live evidence from this box
@@ -63,6 +69,16 @@ certificate renewal. TCP 8100 is not allowed through UFW.
 - The MCP server answered `$5,000 NVDABUSDT BUY` over public HTTPS with
   `REDUCE` to 600 USDT, naming the weekend closure, in 1.1s.
 
+- Public MCP hardening proof on 2026-09-06: a harmless 60-request `GET /mcp`
+  burst produced 49 HTTP 429 responses and 11 HTTP 405 responses; a JSON-RPC
+  ping still returned HTTP 200. No tool call, order, or fill was made.
+- The public dashboard now returns a truthful warm `WARMING` state in about
+  0.16s and a cached `READY` state in about 0.06s after its background build;
+  the ready state contained five symbols, 781 RTH samples per symbol, and 40
+  receipts during this check.
+- A benign watchdog fail/recovery transition delivered through the configured
+  Healthchecks URL with `alert_transition=delivered`; the older `ALERT GAP`
+  log entry records the prior missing-URL condition.
 - Binance REST ping and `NVDABUSDT` ticker: passed.
 - Binance public bStocks status for the canonical NVDAB contract: `TRADING`.
 - Public token audit: `isSupported=false`, `hasResult=false`; contract verification
@@ -108,26 +124,30 @@ The calibration command is reproducible and never edits live policy:
    is not proof that the account is funded or jurisdiction-eligible for a
    real bStock trade.
 3. No real order has been sent. A minimum NVDAB test requires fresh, explicit
-   account-holder approval and funds in the connected Spot account.
+   account-holder approval and funds in the connected Spot account, but funding
+   comes only after the trusted position-input activation below.
 4. HTTPS and Google Drive backup are configured outside the repository.
-   Healthchecks transition delivery is not yet proven; watchdog logs include
-   an earlier `ALERT GAP` for a missing URL.
+   Healthchecks transition delivery was proven with a benign fail/recovery test;
+   watchdog logs also retain an earlier `ALERT GAP` for the prior missing URL.
 
 ## Remaining gaps
 
-1. **D1 operational acceptance:** the credential-free authorization boundary is
-   built and Codex OAuth is verified, but no real order ID or fill receipt
-   exists. The connected Spot account currently has no balances.
-2. **D5 aggregate exposure ceiling:** not built.
+1. **D5 aggregate exposure activation:** P7 is implemented and fail-closed for
+   executable policies. Configure and verify the trusted supported-client
+   Ed25519 public key and fresh signed position publisher before funding; this
+   VPS currently has neither and AFTERBELL has no live position feed. Follow
+   [`docs/position-input.md`](docs/position-input.md).
+2. **D1 operational acceptance:** after D5 activation, fund the connected Spot
+   account, obtain fresh explicit approval, make one minimum valid order through
+   Codex, and capture its order ID/fill and child ledger receipt. No real order
+   ID or fill exists yet.
 3. **D7 Skills Hub PR:** not opened.
 4. **D11 video and submission mechanics:** not started.
 5. **D6 advance corporate-action notice:** Binance current status is live and
    authoritative; Alpaca is optional best-effort and not wired or configured.
 6. **D8 Square publishing:** awaits Creator Center API key.
 7. **D9 counterparty comparison:** wait for an even post-fix RTH/closure sample.
-8. **Public MCP hardening:** rate limiting and bounded receipt growth are not
-   implemented.
-9. **Calibration:** CLOSED_HOLIDAY remains unobserved; policy stays
+8. **Calibration:** CLOSED_HOLIDAY remains unobserved; policy stays
    UNCALIBRATED pending data and manual review.
 
 ## Known limitations

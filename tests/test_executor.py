@@ -8,6 +8,9 @@ import copy
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 import yaml
 
 from afterbell.baselines import Baseline
@@ -17,8 +20,10 @@ from afterbell.executor import (
 )
 from afterbell.guard import MarketContext, OrderRequest, Verdict, evaluate
 from afterbell.measure import Book, Level, Side, depth_within, half_spread_bps
+from afterbell.positions import PositionSnapshot, sign_snapshot
 from afterbell.policy import PolicyError, load
 
+POSITION_KEYS = {}
 BASE = load()
 WHEN = datetime(2026, 9, 2, 15, 0, tzinfo=timezone.utc)
 
@@ -29,8 +34,19 @@ def enabled_policy(tmp_path, **over):
                        "symbols": ["NVDABUSDT"],
                        "require_manual_invocation": True}
     raw["executor"].update(over)
+    key = Ed25519PrivateKey.generate()
+    public_path = tmp_path / "position.pub"
+    public_path.write_bytes(key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo))
+    raw["exposure"].update({
+        "position_public_key": str(public_path),
+        "max_gross_usdt": 5000.0,
+        "require_snapshot": True,
+    })
     p = tmp_path / "policy.yaml"
     p.write_text(yaml.safe_dump(raw))
+    POSITION_KEYS[str(p.resolve())] = key
     return load(p)
 
 
@@ -42,7 +58,17 @@ def book():
 
 def ctx(pol):
     from afterbell.resolver import resolve
+
     b = book()
+    key = POSITION_KEYS.get(str(pol.path.resolve()))
+    snapshot = None
+    if key:
+        snapshot = sign_snapshot(
+            PositionSnapshot(
+                as_of=(WHEN - timedelta(seconds=30)).isoformat(),
+                positions={},
+                source="test-supported-client"),
+            key)
     return MarketContext(
         clock=clock_at(WHEN), book=b,
         baseline=Baseline("NVDABUSDT", n_rth=500,
@@ -50,7 +76,8 @@ def ctx(pol):
                           median_depth_1pct=depth_within(b, pol.depth_band_pct),
                           min_samples=300),
         reference_price=225.0, reference_ts=WHEN - timedelta(seconds=30),
-        exchange_status="TRADING", resolution=resolve("buy nvidia"))
+        exchange_status="TRADING", resolution=resolve("buy nvidia"),
+        position_snapshot=snapshot)
 
 
 def decide(pol, notional=1000.0):

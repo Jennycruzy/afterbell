@@ -65,7 +65,7 @@ def test_freeze_is_receipted(frozen):
 
 
 def test_freeze_runs_before_every_safety_check(frozen):
-    """No P1-P6 result is produced at all while frozen.
+    """No P1-P7 result is produced at all while frozen.
 
     A freeze that ran alongside the checks could be outvoted by a sizing rule.
     This asserts it runs instead of them.

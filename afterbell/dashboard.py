@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,7 +34,8 @@ RECEIPTS = ROOT / "data" / "receipts.jsonl"
 GUARD_STATE = ROOT / "data" / "guard_state.json"
 CALIBRATION = ROOT / "docs" / "calibration.md"
 
-_cache: dict = {"ts": 0.0, "data": None}
+STATE_CACHE_TTL_S = 300.0
+_cache: dict = {"ts": 0.0, "data": None, "building": False}
 _lock = threading.Lock()
 
 
@@ -253,20 +255,88 @@ def build_state() -> dict:
     }
 
 
-def cached_state(max_age_s: float = 60.0) -> dict:
-    """Serve one measured snapshot for the recorder/guard cadence.
+def _starting_state() -> dict:
+    """Return a truthful lightweight response while the archive is indexed."""
+    now = datetime.now(timezone.utc)
+    note = ("Dashboard is warming: the full recorded history is being indexed.")
+    try:
+        pol = load_policy()
+        policy = {
+            "sha256": pol.sha256,
+            "status": pol.status,
+            "base_notional": pol.base_notional,
+            "min_rth_samples": pol.min_rth_samples,
+        }
+    except Exception as exc:
+        policy = {
+            "sha256": None,
+            "status": "UNKNOWN",
+            "base_notional": None,
+            "min_rth_samples": None,
+        }
+        note = f"Dashboard warming; policy unavailable: {type(exc).__name__}: {exc}"
+    clock = clock_at()
+    return {
+        "generated_at": now.isoformat(),
+        "build_status": "WARMING",
+        "build_note": note,
+        "reference_age_s": None,
+        "reference_age": None,
+        "reference_age_source": "warming",
+        "clock": {
+            "state": clock.state.value,
+            "seconds_to_next_open": clock.seconds_to_next_open,
+            "hours_to_next_open": clock.hours_to_next_open,
+            "next_open_utc": clock.next_open_utc.isoformat(),
+            "holiday": clock.holiday,
+            "extended_closure_ahead": clock.extended_closure_ahead,
+            "seconds_to_close": clock.seconds_to_close,
+        },
+        "policy": policy,
+        "registry_sha256": registry_sha256(),
+        "ledger_head": None,
+        "guard": _load_guard_state(),
+        "history": [],
+        "calibration_markdown": note,
+        "symbols": [],
+        "receipts": [],
+    }
 
-    Building the snapshot parses recorded full-depth books. A five-second
-    cache would rescan that immutable history more often than either live
-    producer changes it, while the generated timestamp remains visible to
-    the reader.
-    """
-    import time
+
+def _refresh_state() -> None:
+    """Build one full state snapshot outside the HTTP request thread."""
+    try:
+        data = build_state()
+    except Exception:
+        logging.getLogger("afterbell.dashboard").exception(
+            "dashboard state build failed")
+        with _lock:
+            _cache["building"] = False
+        return
     with _lock:
-        if _cache["data"] is None or time.time() - _cache["ts"] > max_age_s:
-            _cache["data"] = build_state()
-            _cache["ts"] = time.time()
-        return _cache["data"]
+        _cache["data"] = data
+        _cache["ts"] = time.time()
+        _cache["building"] = False
+
+
+def _start_refresh() -> None:
+    with _lock:
+        if _cache["building"]:
+            return
+        _cache["building"] = True
+    threading.Thread(target=_refresh_state, name="dashboard-refresh",
+                     daemon=True).start()
+
+
+def cached_state(max_age_s: float = STATE_CACHE_TTL_S) -> dict:
+    """Serve the last good state while a slow archive refresh runs."""
+    with _lock:
+        data = _cache["data"]
+        stale = (data is None
+                 or time.time() - _cache["ts"] > max_age_s)
+    if stale:
+        _start_refresh()
+    return data if data is not None else _starting_state()
 
 
 PAGE = """<!doctype html>
@@ -386,7 +456,7 @@ function receipts(d){
  <div class="empty">No decisions recorded yet. Every evaluation &mdash; including every refusal &mdash; is appended here as a hash-chained receipt.</div></div>`;
  const rows=d.receipts.map(r=>{
   const cls=r.decision==='BLOCK'?'blocked':(r.decision==='REDUCE'?'reduced':'passed');
-  const names={P1:"Market closure",P2:"Liquidity",P3:"Price agreement",P4:"Corporate action",P5:"Instrument identity",P6:"Contract check"};
+  const names={P1:"Market closure",P2:"Liquidity",P3:"Price agreement",P4:"Corporate action",P5:"Instrument identity",P6:"Contract check",P7:"Aggregate exposure"};
   const g=Object.entries(r.gates).map(([k,v])=>`<span class="g ${v}">${names[k] || k} ${v}</span>`).join("");
   return `<div class="rc ${cls}"><div class="rt">#${r.seq} &middot; ${r.ts} &middot; ${r.symbol} &middot; ${r.market_state} &middot; REFERENCE_AGE ${r.reference_age||'none'}</div>
   <span class="tag ${r.decision}">${r.decision}</span>
@@ -461,6 +531,7 @@ def main() -> None:
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8000)
     a = ap.parse_args()
+    _start_refresh()
     print(f"AFTERBELL dashboard on http://{a.host}:{a.port}", flush=True)
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
 

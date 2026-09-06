@@ -139,8 +139,14 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 
 - **Resolver** (`afterbell/resolver.py`) — full instrument chain plus canonical
   contract verification, refusing rather than guessing.
-- **Safety evaluator** (`afterbell/guard.py`) — six named safety checks, one sizing function, factors
+- **Safety evaluator** (`afterbell/guard.py`) — seven named safety checks, one sizing function, factors
   combined by `min()` and never by product. 84 tests in total.
+- **Aggregate exposure ceiling** (afterbell/positions.py, P7/D5) — accepts
+  only a short-lived Ed25519-signed supported-client position snapshot,
+  counts gross net-position notionals across all symbols, and caps or refuses
+  new exposure. Receipts commit the snapshot identity without raw positions;
+  executable policies require the snapshot and its configured public key.
+
 
 - **Reference price** (`afterbell/reference.py`) — last regular-session trade,
   or the session's official close re-timestamped to the actual closing bell.
@@ -172,9 +178,16 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 On this VPS, HTTPS and Google Drive off-site backup are configured outside the
 repository. Binance OAuth is active in Codex; a read-only Spot account probe
 returned `canTrade: true` but no Spot balances. Healthchecks is external and
-transition delivery still needs a verified alert test. **Corporate-action protection is
+transition delivery was verified with a benign fail/recovery test; an older missing-URL gap remains in the watchdog log. **Corporate-action protection is
 Binance-native:** it checks bStocks processing status and reported reason messages, while
 explicitly not claiming guaranteed advance notice. Yahoo remains the active reference provider.
+
+Before funding the connected account or enabling execution, configure the
+trusted signed position input described in
+[`docs/position-input.md`](docs/position-input.md). The current VPS has no
+`/etc/afterbell/position.pub` and no live snapshot publisher. The public key
+must come from the supported client; generating an unrelated local key would
+not establish the required trust boundary.
 
 `REFERENCE_AGE` is shown as the age of the actual recorded regular-session
 reference. If that price is missing, the dashboard says `no reference` and the
@@ -200,6 +213,16 @@ Four lines around an existing agent, trading logic untouched. Or from a shell:
 ```
 python -m afterbell.engine --symbol NVDABUSDT --notional 5000 --query "buy Nvidia"
 ```
+
+For an executable policy, pass a fresh signed supported-client position
+snapshot too:
+
+    python -m afterbell.engine --symbol NVDABUSDT --notional 5000 --query "buy Nvidia" \
+      --position-snapshot /path/to/position-snapshot.json
+
+The MCP evaluate_order tool accepts the same position_snapshot object.
+AFTERBELL has no live position feed; without a snapshot the shipped read-only
+policy records P7 as not required, while an executable policy blocks.
 
 ## The adversarial corpus
 
@@ -538,6 +561,14 @@ tagged with their source, so a decision you trigger from your own client
 appears in the same hash-chained ledger as the rest, and the response tells you
 its sequence number and hash.
 
+MCP hardening is deployed. The application rejects batches larger than 20
+messages, charges every message to a 30-unit per-client/60-second budget, and
+persists a 1,000 evaluate_order-calls-per-UTC-day quota in
+`data/mcp-quota.json`. Rejected requests return HTTP 429 with `Retry-After`
+and do not call the guard. Nginx applies a source-address limiter before the
+application; a harmless public burst and JSON-RPC ping were verified on
+2026-09-06 without making a tool call or order.
+
 ## Connecting to Binance Agent OS
 
 Binance Agent OS must be connected through a Binance-supported AI client. This
@@ -650,19 +681,21 @@ Regenerate with `.venv/bin/python -m afterbell.counterparty`.
 
 ## Remaining gaps
 
-1. **D1 operational acceptance:** Codex OAuth and read-only account/product
-   checks work, but no real order ID or fill receipt exists; the Spot account
-   currently has no balances.
-2. **D5 aggregate exposure ceiling:** not built.
+1. **D5 aggregate exposure activation:** P7 is implemented and fail-closed for
+   executable policies. Configure and verify the trusted supported-client
+   Ed25519 public key and fresh signed position publisher first; this VPS still
+   has neither. AFTERBELL has no live position feed. See
+   [`docs/position-input.md`](docs/position-input.md).
+2. **D1 operational acceptance:** only after D5 activation, fund the connected
+   Spot account, obtain fresh explicit approval, make one minimum valid order
+   through Codex, and capture its order ID/fill and child ledger receipt.
 3. **D7 Skills Hub PR:** not opened.
 4. **D11 video and submission mechanics:** not started.
 5. **D6 advance corporate-action notice:** Binance current status is authoritative;
    Alpaca is optional best-effort and not wired or configured.
 6. **D8 Square publishing:** awaits Creator Center API key.
 7. **D9 counterparty comparison:** wait for an even post-fix RTH/closure sample.
-8. **Public MCP hardening:** rate limiting and bounded receipt growth are not
-   implemented.
-9. **Calibration:** `CLOSED_HOLIDAY` remains unobserved; policy stays
+8. **Calibration:** `CLOSED_HOLIDAY` remains unobserved; policy stays
    `UNCALIBRATED` pending data and manual review.
 
 ## Known limitations

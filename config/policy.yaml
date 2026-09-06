@@ -150,3 +150,19 @@ executor:
   # Orders are placed only while a human is watching. There is no scheduler and
   # no daemon: something must invoke the executor for each order.
   require_manual_invocation: true
+
+# ---------------------------------------------------------------------------
+# Aggregate account exposure (P7 / D5).
+#
+# AFTERBELL has no authenticated position feed.  A supported client may supply
+# a short-lived Ed25519-signed snapshot when it asks for an actionable
+# evaluation.  The shipped policy stays read-only until that input key and
+# source are configured outside the repository.  If execution is enabled,
+# policy loading requires `require_snapshot: true` so a missing account view
+# cannot silently turn into a new-exposure permission.
+# ---------------------------------------------------------------------------
+exposure:
+  max_gross_usdt: 100.0
+  snapshot_max_age_s: 120.0
+  position_public_key: /etc/afterbell/position.pub
+  require_snapshot: false
