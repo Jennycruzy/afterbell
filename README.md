@@ -177,17 +177,18 @@ off-hours order-book data it collects cannot be back-filled after the fact.
 
 On this VPS, HTTPS and Google Drive off-site backup are configured outside the
 repository. Binance OAuth is active in Codex; a read-only Spot account probe
-returned `canTrade: true` but no Spot balances. Healthchecks is external and
-transition delivery was verified with a benign fail/recovery test; an older missing-URL gap remains in the watchdog log. **Corporate-action protection is
-Binance-native:** it checks bStocks processing status and reported reason messages, while
-explicitly not claiming guaranteed advance notice. Yahoo remains the active reference provider.
+returned `canTrade: true`, and the minimum funded test subsequently filled.
+Healthchecks is external and transition delivery was verified with a benign
+fail/recovery test; an older missing-URL gap remains in the watchdog log.
+**Corporate-action protection is Binance-native:** it checks bStocks processing
+status and reported reason messages, while explicitly not claiming guaranteed
+advance notice. Alpaca credentials are configured outside Git for read-only
+reference validation; Yahoo remains the recorder's primary provider.
 
-Before funding the connected account or enabling execution, configure the
-trusted signed position input described in
-[`docs/position-input.md`](docs/position-input.md). The current VPS has no
-`/etc/afterbell/position.pub` and no live snapshot publisher. The public key
-must come from the supported client; generating an unrelated local key would
-not establish the required trust boundary.
+The trusted signed position input described in
+[`docs/position-input.md`](docs/position-input.md) is active. The live
+acceptance record is in [`docs/live-acceptance.md`](docs/live-acceptance.md).
+The shipped executor is disabled again after the one approved test.
 
 `REFERENCE_AGE` is shown as the age of the actual recorded regular-session
 reference. If that price is missing, the dashboard says `no reference` and the
@@ -681,22 +682,16 @@ Regenerate with `.venv/bin/python -m afterbell.counterparty`.
 
 ## Remaining gaps
 
-1. **D5 aggregate exposure activation:** P7 is implemented and fail-closed for
-   executable policies. Configure and verify the trusted supported-client
-   Ed25519 public key and fresh signed position publisher first; this VPS still
-   has neither. AFTERBELL has no live position feed. See
-   [`docs/position-input.md`](docs/position-input.md).
-2. **D1 operational acceptance:** only after D5 activation, fund the connected
-   Spot account, obtain fresh explicit approval, make one minimum valid order
-   through Codex, and capture its order ID/fill and child ledger receipt.
-3. **D7 Skills Hub PR:** not opened.
-4. **D11 video and submission mechanics:** not started.
-5. **D6 advance corporate-action notice:** Binance current status is authoritative;
-   Alpaca is optional best-effort and not wired or configured.
-6. **D8 Square publishing:** awaits Creator Center API key.
-7. **D9 counterparty comparison:** wait for an even post-fix RTH/closure sample.
-8. **Calibration:** `CLOSED_HOLIDAY` remains unobserved; policy stays
-   `UNCALIBRATED` pending data and manual review.
+1. **D7 Skills Hub PR:** not opened.
+2. **D11 video and submission mechanics:** not started.
+3. **D6 corporate-action lookahead:** Binance current processing status is
+   authoritative but does not guarantee advance notice; Alpaca reference
+   validation is configured, not an independent corporate-action source.
+4. **D8 Square publishing:** awaits Creator Center API key.
+5. **D9 counterparty comparison:** continue the corrected post-fix sample
+   through an even regular-hours/closure comparison.
+6. **Calibration:** `CLOSED_HOLIDAY` and manual threshold review remain before
+   changing the signed policy from `UNCALIBRATED`.
 
 ## Known limitations
 

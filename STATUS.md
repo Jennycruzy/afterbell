@@ -1,6 +1,6 @@
 # AFTERBELL — build status
 
-Updated **2026-09-06 17:57 UTC**. This file separates code that is built from
+Updated **2026-09-07 UTC**. This file separates code that is built from
 external facts that still need an account holder or destination.
 
 The detailed continuation handoff is intentionally local-only and untracked; this file records the public status.
@@ -12,13 +12,15 @@ The detailed continuation handoff is intentionally local-only and untracked; thi
 | Recorder | `afterbell-recorder.service` | none; Yahoo reference | active, enabled at boot |
 | Dashboard | `afterbell-dashboard.service` | none | active through HTTPS at `afterbell.site` |
 | MCP server | `afterbell-mcp.service` | none; holds no credential | active through HTTPS at `afterbell.site/mcp` |
-| Guard | `afterbell-guard.service` | no credentials; public Binance corporate-action status | active, enabled at boot |
+| Guard | `afterbell-guard.service` | read-only Alpaca reference plus public Binance corporate-action status | active, enabled at boot |
 | Watchdog | `afterbell-watchdog.timer` | Healthchecks URL in separate mode-600 file | active, every 5 min |
 | Backup | `afterbell-backup.timer` | Google Drive remote in separate mode-600 file | active, hourly |
 
-The recorder, dashboard and guard never load `.env`, so an Agent OS OAuth token
-cannot stop or enter the market-data process. The executor is never invoked by
-a service and the shipped policy has `executor.enabled: false`.
+The recorder, dashboard and guard never load the Convex `.env`, so an Agent OS
+OAuth token cannot stop or enter the market-data process. The guard's separate
+mode-600 environment contains only the read-only Alpaca reference credentials.
+The executor is never invoked by a service and the shipped policy has
+`executor.enabled: false`.
 
 The dashboard listens only on loopback; nginx is the sole public entrypoint.
 HTTPS is live at `afterbell.site` and `www.afterbell.site`, with automatic
@@ -85,7 +87,12 @@ certificate renewal. TCP 8100 is not allowed through UFW.
   reports registry-only, not a clean audit.
 - Live public integration test: passed with
   `AFTERBELL_RUN_LIVE=1`.
-- Yahoo is the active reference provider. Alpaca is not configured here.
+- Alpaca read-only stock snapshot and paper-clock validation: HTTP 200.
+- A live signed Binance balance snapshot verified P7 before and after the
+  minimum order.
+- Live D1 acceptance: order `54422149` filled `0.021 NVDAB` for
+  `4.86192000 USDT`; post-trade account check found `0.020979 NVDAB` and
+  `5.68314309 USDT` free. See [docs/live-acceptance.md](docs/live-acceptance.md).
 - Integrated live guard evaluation: market-closure risk reduced on the closing ramp; liquidity, price disagreement, identity, and contract checks passed; **corporate-action status warns because Binance current-status verification does not guarantee advance corporate-action notice**.
 
 ## Calibration
@@ -117,38 +124,30 @@ The calibration command is reproducible and never edits live policy:
 
 1. Binance Agent OS is authenticated through the supported Codex MCP client;
    `codex mcp list` shows `binance-agent-os` enabled with `Auth: OAuth`. A
-   read-only `spot.getAccount` probe succeeded with `canTrade: true`, but the
-   Spot `balances` array is empty.
+   read-only account probe succeeded with `canTrade: true`; the account was
+   funded, tested, and post-trade verification completed.
 2. `spot.exchangeInfo` reports `NVDABUSDT` `TRADING`,
    `isSpotTradingAllowed: true`, and `NOTIONAL.minNotional=5.00` USDT. This
    is not proof that the account is funded or jurisdiction-eligible for a
    real bStock trade.
-3. No real order has been sent. A minimum NVDAB test requires fresh, explicit
-   account-holder approval and funds in the connected Spot account, but funding
-   comes only after the trusted position-input activation below.
+3. The minimum NVDAB test filled as order `54422149` after fresh
+   account-holder approval. The executor was disabled again after the test.
 4. HTTPS and Google Drive backup are configured outside the repository.
    Healthchecks transition delivery was proven with a benign fail/recovery test;
    watchdog logs also retain an earlier `ALERT GAP` for the prior missing URL.
 
 ## Remaining gaps
 
-1. **D5 aggregate exposure activation:** P7 is implemented and fail-closed for
-   executable policies. Configure and verify the trusted supported-client
-   Ed25519 public key and fresh signed position publisher before funding; this
-   VPS currently has neither and AFTERBELL has no live position feed. Follow
-   [`docs/position-input.md`](docs/position-input.md).
-2. **D1 operational acceptance:** after D5 activation, fund the connected Spot
-   account, obtain fresh explicit approval, make one minimum valid order through
-   Codex, and capture its order ID/fill and child ledger receipt. No real order
-   ID or fill exists yet.
-3. **D7 Skills Hub PR:** not opened.
-4. **D11 video and submission mechanics:** not started.
-5. **D6 advance corporate-action notice:** Binance current status is live and
-   authoritative; Alpaca is optional best-effort and not wired or configured.
-6. **D8 Square publishing:** awaits Creator Center API key.
-7. **D9 counterparty comparison:** wait for an even post-fix RTH/closure sample.
-8. **Calibration:** CLOSED_HOLIDAY remains unobserved; policy stays
-   UNCALIBRATED pending data and manual review.
+1. **D7 Skills Hub PR:** not opened.
+2. **D11 video and submission mechanics:** not started.
+3. **D6 corporate-action lookahead:** Binance current processing status is
+   authoritative but does not guarantee advance notice; Alpaca reference
+   validation is configured, not an independent corporate-action source.
+4. **D8 Square publishing:** awaits Creator Center API key.
+5. **D9 counterparty comparison:** continue the corrected post-fix sample
+   through an even regular-hours/closure comparison.
+6. **Calibration:** `CLOSED_HOLIDAY` and manual threshold review remain before
+   changing the signed policy from `UNCALIBRATED`.
 
 ## Known limitations
 
