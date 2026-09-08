@@ -21,7 +21,7 @@ report was not supplied, so the system does not guess that the account is empty.
 |---|---|---|
 | Recorder | Captures token books, trades, and reference prices | Active; no credential |
 | Dashboard | Public operating view at `afterbell.site` | Active over HTTPS |
-| MCP service | Public `evaluate_order` and `get_market_state` tools | Active over HTTPS |
+| MCP service | Public `evaluate_order`, `get_market_state` and `get_safety_posture` tools | Active over HTTPS |
 | Evaluator | Applies the measured data and safety settings | Active; no order submission |
 | Watchdog | Watches service and backup health | Active every five minutes |
 | Backup | Copies stable data to the configured remote | Active hourly |
@@ -40,6 +40,8 @@ is not open through the firewall.
 - Seven independent safety questions combined into one smallest safe amount.
 - Append-only, hash-linked decision history with a configuration fingerprint.
 - Public dashboard and MCP surface.
+- Unattended detection of material safety-state changes, recorded and
+  explained without a request, authorising nothing.
 - Signed decision records with the current order limit attached.
 - Recorder, dashboard, evaluator, backup, and watchdog system services.
 - Adversarial test corpus and ordinary-condition accuracy checks.

@@ -53,6 +53,44 @@ current account position is unknown.
 Every number comes from ordinary deterministic code. A language model can
 explain a result, but it cannot choose a price, threshold, amount, or outcome.
 
+## What it does when nobody asks
+
+The monitor runs unattended, and most of the time it has nothing to say. It
+reduces each cycle to the bands the limits already respond to: where the
+reference market is in its calendar, how stale the independent price has
+become, how the book compares with its own regular-hours normal, how far the
+token has drifted from the reference, what the venue reports, and whether there
+is current account evidence.
+
+When one of those bands moves, it records the change on its own and says why it
+matters:
+
+```text
+AFTERBELL noticed a material change on NVDABUSDT.
+
+Reference market: RTH_OPEN -> CLOSED_WEEKEND
+Safety posture: Clear -> Smaller size
+
+The market that supplies the independent price changed session.
+The size AFTERBELL is willing to stand behind changed as a result.
+
+Nobody asked for this. No order was created and no authorization was issued;
+a request is still evaluated on its own merits when one arrives.
+```
+
+A band moving is material by construction: it is a boundary the limits already
+change their answer at, not a threshold invented for reporting. The dashboard
+shows these under **Noticed without being asked**, and an agent can read them
+through the `get_safety_posture` tool before it proposes anything.
+
+What this deliberately is not: it never originates an order, and it never signs
+a standing permission. An authorization is bound to one specific proposal — its
+symbol, side, requested and permitted size, the evidence behind it, an expiry
+and a one-time nonce. A background observation has no proposal behind it, so
+there is nothing to bind and nothing is signed. When an agent does propose an
+order, the request-specific path decides what it may do, against the picture
+that is current by then.
+
 ## Current live checkpoint
 
 This is the state observed on **8 September 2026 UTC**; the dashboard is the

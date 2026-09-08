@@ -33,6 +33,18 @@ an order, and it holds no exchange credential.
 Do not use it to choose an investment or predict a price. It only constrains an
 order proposed by something else.
 
+## What it notices on its own
+
+Between requests the monitor keeps watching. When the reference market changes
+session, the independent price ages past a threshold the limits respond to, the
+book leaves its normal range, the token drifts from the reference, the venue
+changes what it reports, or account evidence expires, it records that change and
+explains why it matters.
+
+It does not create an order or a standing permission when it does this. The
+record is there so that the next request is judged against a current picture.
+Ask `get_safety_posture` to read it.
+
 ## Adoption
 
 ```python

@@ -90,11 +90,28 @@ def test_a_tool_error_is_reported_in_band():
 # ---------------- it cannot trade ----------------
 
 def test_no_tool_can_place_an_order():
-    """The whole surface is two read-only tools, and this asserts it stays so."""
+    """The whole surface is read-only tools, and this asserts it stays so.
+
+    The set is pinned rather than counted, so adding a tool is a deliberate
+    edit here and a write tool cannot arrive unnoticed.
+    """
     for tool in TOOLS:
         blob = json.dumps(tool).lower()
         assert "place" not in blob.replace("places an order", "")
-    assert set(HANDLERS) == {"evaluate_order", "get_market_state"}
+    assert set(HANDLERS) == {"evaluate_order", "get_market_state",
+                             "get_safety_posture"}
+
+
+def test_the_posture_tool_authorises_nothing():
+    """It reports what was noticed. Permission comes only from evaluate_order."""
+    from afterbell.mcp_server import get_safety_posture, ToolError
+    try:
+        out = get_safety_posture({})
+    except ToolError:
+        return                             # nothing recorded yet is a fine state
+    assert out["authorizes"] is None
+    assert "permitted_notional" not in out
+    assert "signature" not in out
 
 
 def test_the_server_reaches_nothing_that_can_trade():

@@ -197,9 +197,40 @@ def _backup_state() -> dict:
 
 
 def _receipts(limit: int = 40) -> list[dict]:
+    """Decisions only. The ledger also carries observations and redemptions,
+    which are not decisions and must not be rendered as one."""
     if not RECEIPTS.exists():
         return []
-    return _tail_records(RECEIPTS, limit)[::-1]
+    rows = [r for r in _tail_records(RECEIPTS, max(limit * 3, limit))
+            if "decision" in r]
+    return rows[-limit:][::-1]
+
+
+def _posture_state() -> dict:
+    """What the monitor noticed on its own, and when it last noticed anything."""
+    current = {}
+    try:
+        current = json.loads((ROOT / "data" / "posture.json").read_text())
+    except (OSError, ValueError):
+        pass
+    changes = _posture_changes(5)
+    return {
+        "observed_at": current.get("ts"),
+        "bands": current.get("after") or {},
+        "changes": [{"seq": c.get("seq"), "ts": c.get("ts"),
+                     "symbol": c.get("symbol"),
+                     "changed": c.get("changed"),
+                     "explanation": c.get("explanation")} for c in changes],
+    }
+
+
+def _posture_changes(limit: int = 8) -> list[dict]:
+    """What the service noticed without being asked."""
+    if not RECEIPTS.exists():
+        return []
+    rows = [r for r in _tail_records(RECEIPTS, 400)
+            if r.get("kind") == "posture_change"]
+    return rows[-limit:][::-1]
 
 
 
@@ -318,6 +349,24 @@ def _public_state(data: dict) -> dict:
         ]
         receipts.append(item)
     public["receipts"] = receipts
+    posture = dict(data.get("posture") or {})
+    bands = dict(posture.get("bands") or {})
+    if bands.get("market_state"):
+        bands["market_state"] = _PUBLIC_STATES.get(bands["market_state"],
+                                                   bands["market_state"])
+    if bands.get("verdict"):
+        bands["verdict"] = _PUBLIC_DECISIONS.get(bands["verdict"],
+                                                 bands["verdict"])
+    posture["bands"] = bands
+    for change in posture.get("changes") or []:
+        for moved in change.get("changed") or []:
+            if moved.get("band") == "market_state":
+                moved["before"] = _PUBLIC_STATES.get(moved["before"], moved["before"])
+                moved["after"] = _PUBLIC_STATES.get(moved["after"], moved["after"])
+            if moved.get("band") == "verdict":
+                moved["before"] = _PUBLIC_DECISIONS.get(moved["before"], moved["before"])
+                moved["after"] = _PUBLIC_DECISIONS.get(moved["after"], moved["after"])
+    public["posture"] = posture
     public["calibration_markdown"] = _public_word(
         data.get("calibration_markdown", ""), check_keys)
 
@@ -466,6 +515,7 @@ def build_state() -> dict:
         "history": _history("NVDABUSDT", "NVDA"),
         "calibration_markdown": _calibration_text(),
         "evaluation": _evaluation_metrics(),
+        "posture": _posture_state(),
         "backup": _backup_state(),
         "acceptance": {
             "status": "FILLED", "order_id": "54422149",
@@ -524,6 +574,7 @@ def _starting_state() -> dict:
         "history": [],
         "calibration_markdown": _calibration_text(),
         "evaluation": _evaluation_metrics(),
+        "posture": _posture_state(),
         "backup": _backup_state(),
         "acceptance": {
             "status": "RECORDED", "order_id": "54422149",

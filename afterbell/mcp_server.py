@@ -47,6 +47,8 @@ from afterbell.positions import PositionSnapshotError, parse as parse_position_s
 from afterbell.measure import Side
 from afterbell.policy import Policy, load as load_policy
 
+ROOT = Path(__file__).resolve().parent.parent
+
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "afterbell", "version": "0.1.0"}
 MAX_BODY = 64 * 1024
@@ -120,6 +122,19 @@ TOOLS = [
                 "symbol": {"type": "string", "default": "NVDABUSDT"},
             },
         },
+    },
+    {
+        "name": "get_safety_posture",
+        "description": (
+            "What AFTERBELL has noticed on its own since anyone last asked "
+            "it anything. Returns the current safety bands and the last "
+            "material change it recorded, with the reason it mattered. The "
+            "monitor runs unattended and records a change only when a band "
+            "the policy actually sizes on has moved, so an agent can find "
+            "out that the ground shifted without proposing an order first. "
+            "Read-only, and it authorises nothing: call evaluate_order to "
+            "find out what size is permitted."),
+        "inputSchema": {"type": "object", "properties": {}},
     },
 ]
 
@@ -421,6 +436,44 @@ def evaluate_order(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def get_safety_posture(args: dict[str, Any]) -> dict[str, Any]:
+    """Report what the unattended monitor last observed and last recorded.
+
+    It reads what the service actually wrote rather than recomputing, so the
+    answer is the agent's own state and not a second opinion formed here.
+    """
+    del args
+    from afterbell.ledger import Ledger
+
+    posture_path = ROOT / "data" / "posture.json"
+    try:
+        current = json.loads(posture_path.read_text())
+    except (OSError, ValueError):
+        raise ToolError("the monitor has not recorded a posture yet") from None
+
+    last = None
+    ledger_path = ROOT / "data" / "receipts.jsonl"
+    if ledger_path.exists():
+        for rec in Ledger(ledger_path):
+            if rec.get("kind") == "posture_change":
+                last = rec
+    return {
+        "observed_at": current.get("ts"),
+        "bands": current.get("after"),
+        "last_material_change": None if last is None else {
+            "seq": last.get("seq"),
+            "ts": last.get("ts"),
+            "symbol": last.get("symbol"),
+            "changed": last.get("changed"),
+            "explanation": last.get("explanation"),
+        },
+        "authorizes": None,
+        "note": ("An observation, not permission. It is recorded so a later "
+                 "request meets a current safety picture; the size an agent "
+                 "may use is decided by evaluate_order when it asks."),
+    }
+
+
 def get_market_state(args: dict[str, Any]) -> dict[str, Any]:
     symbol = str(args.get("symbol") or "NVDABUSDT").upper().strip()
     guard = _guard()
@@ -461,7 +514,8 @@ def get_market_state(args: dict[str, Any]) -> dict[str, Any]:
 
 
 HANDLERS = {"evaluate_order": evaluate_order,
-            "get_market_state": get_market_state}
+            "get_market_state": get_market_state,
+            "get_safety_posture": get_safety_posture}
 
 
 def handle(message: Any) -> dict[str, Any] | None:

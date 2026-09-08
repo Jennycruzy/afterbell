@@ -18,9 +18,11 @@ from afterbell.engine import Guard
 from afterbell.guard import OrderRequest, to_receipt
 from afterbell.measure import Side
 from afterbell.policy import load as load_policy
+from afterbell.posture import change_record, observe, transitions
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE = ROOT / "data" / "guard_state.json"
+POSTURE = ROOT / "data" / "posture.json"
 HEARTBEAT = ROOT / "data" / "guard_heartbeat"
 GAPS = ROOT / "data" / "guard_gaps.jsonl"
 RUNNING = True
@@ -57,6 +59,7 @@ def _state_from(req: OrderRequest, decision, *, receipt_seq: int,
     receipt = to_receipt(decision, req)
     return {
         "ts": _iso(),
+        "symbol": req.symbol,
         "receipt_seq": receipt_seq,
         "receipt_hash": receipt_hash,
         "evaluation_source": req.evaluation_source,
@@ -83,6 +86,44 @@ def _state_from(req: OrderRequest, decision, *, receipt_seq: int,
     }
 
 
+def _last_posture() -> dict | None:
+    """The bands as they stood on the previous cycle, across restarts.
+
+    Held on disk so a restart does not lose a transition, and so the first
+    cycle after one compares against what was really seen rather than
+    reporting a change that did not happen.
+    """
+    try:
+        return json.loads(POSTURE.read_text())["after"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def notice_change(guard: Guard, state: dict, pol) -> dict | None:
+    """Compare this cycle with the last and record it only if it moved.
+
+    This is the whole of the service's initiative: nobody asked, and most
+    cycles produce nothing. It writes an observation, never an authorization,
+    because there is no proposal here to bind one to.
+    """
+    from afterbell.posture import Posture
+
+    now = observe(state, pol)
+    stored = _last_posture()
+    before = Posture(**stored) if stored else None
+    moved = transitions(before, now)
+    if not moved:
+        _write_json(POSTURE, {"ts": _iso(), "after": now.to_dict()})
+        return None
+    record = guard.ledger.append(change_record(
+        before, now, moved, ts=_iso(),
+        receipt_seq=state.get("receipt_seq"),
+        receipt_hash=state.get("receipt_hash")))
+    _write_json(POSTURE, {"ts": _iso(), "after": now.to_dict(),
+                          "last_change_seq": record["seq"]})
+    return record
+
+
 def evaluate_once(guard: Guard, req: OrderRequest):
     """Evaluate, receipt, and publish one monitor cycle atomically by order.
 
@@ -97,6 +138,15 @@ def evaluate_once(guard: Guard, req: OrderRequest):
                                    receipt_hash=guard.ledger.head))
     HEARTBEAT.parent.mkdir(parents=True, exist_ok=True)
     HEARTBEAT.write_text(_iso() + "\n")
+    try:
+        change = notice_change(guard, _state_from(
+            req, decision, receipt_seq=guard.ledger.seq,
+            receipt_hash=guard.ledger.head), guard.policy)
+        if change is not None:
+            print(f"[{_iso()}] noticed change seq={change['seq']} "
+                  f"{[c['band'] for c in change['changed']]}", flush=True)
+    except Exception as exc:                 # noticing must never stop guarding
+        _gap(f"posture: {type(exc).__name__}: {exc}")
     return decision
 
 

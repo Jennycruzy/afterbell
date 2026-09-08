@@ -45,3 +45,57 @@ def test_evaluate_once_records_and_links_receipt(monkeypatch, tmp_path):
     assert written["state"]["receipt_hash"] == "a" * 64
     assert written["state"]["evaluation_source"] == "continuous_read_only_monitor"
     assert (tmp_path / "heartbeat").exists()
+
+
+# ---------------- noticing, without being asked ----------------
+
+def test_the_service_records_a_change_only_when_a_band_moves(tmp_path,
+                                                             monkeypatch):
+    """The loop's initiative, end to end: quiet cycles write nothing."""
+    import afterbell.guard_service as gs
+    from afterbell.ledger import Ledger
+    from tests.test_guard import POL
+    from tests.test_posture import state
+
+    monkeypatch.setattr(gs, "POSTURE", tmp_path / "posture.json")
+
+    class _Guard:
+        def __init__(self):
+            self.ledger = Ledger(tmp_path / "receipts.jsonl")
+            self.policy = POL
+
+    guard = _Guard()
+    open_market = state(receipt_seq=1, receipt_hash="a")
+
+    assert gs.notice_change(guard, open_market, POL) is None      # first sight
+    assert gs.notice_change(guard, open_market, POL) is None      # unchanged
+
+    closed = state(market_state="CLOSED_WEEKEND", status="REDUCE",
+                   receipt_seq=2, receipt_hash="b")
+    record = gs.notice_change(guard, closed, POL)
+
+    assert record is not None
+    assert record["kind"] == "posture_change"
+    assert record["authorizes"] is None
+    assert {c["band"] for c in record["changed"]} == {"market_state", "verdict"}
+    assert "No order was created" in record["explanation"]
+    assert gs.notice_change(guard, closed, POL) is None           # settled
+
+
+def test_a_restart_does_not_invent_a_change(tmp_path, monkeypatch):
+    """The bands are reloaded from disk, so the first cycle after a restart
+    compares against what was really seen last."""
+    import afterbell.guard_service as gs
+    from afterbell.ledger import Ledger
+    from tests.test_guard import POL
+    from tests.test_posture import state
+
+    monkeypatch.setattr(gs, "POSTURE", tmp_path / "posture.json")
+
+    class _Guard:
+        def __init__(self):
+            self.ledger = Ledger(tmp_path / "receipts.jsonl")
+            self.policy = POL
+
+    gs.notice_change(_Guard(), state(), POL)
+    assert gs.notice_change(_Guard(), state(), POL) is None
