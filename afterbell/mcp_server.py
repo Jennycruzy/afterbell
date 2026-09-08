@@ -45,7 +45,7 @@ from afterbell.engine import Guard
 from afterbell.guard import OrderRequest
 from afterbell.positions import PositionSnapshotError, parse as parse_position_snapshot
 from afterbell.measure import Side
-from afterbell.policy import load as load_policy
+from afterbell.policy import Policy, load as load_policy
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "afterbell", "version": "0.1.0"}
@@ -306,31 +306,69 @@ _QUOTA = MCPQuota()
 
 
 # Baselines are medians over a rolling window of every recorded book, and
-# building them scans the whole raw archive. Measured at 32.8s per call on this
-# box, which is slower than a judge's client will wait, so one Guard is held and
-# its baselines are rebuilt on a timer instead of on every request.
+# building them scans the whole raw archive. That scan is not a constant: it
+# was 32.8s per call when this server was written and 301.6s once the recorder
+# moved to full-depth books, because the cost grows with the archive. Any
+# design that makes a caller wait for it therefore fails eventually rather than
+# immediately, and it failed here as a 504 from nginx on every tool call.
+#
+# So a rebuild never happens on the request path. One Guard is held and served;
+# when it ages out, the caller that notices starts a background rebuild and is
+# answered from the Guard already in hand. Requests stay fast whatever the
+# archive costs to scan.
 #
 # The policy is still re-read and re-checksummed on every call, because that is
 # cheap and because a server up for days must not be running yesterday's
-# limits. A changed checksum rebuilds the Guard immediately.
-BASELINE_TTL_S = 900
+# limits. A changed checksum cannot be served from the old Guard, so that case
+# refuses and rebuilds rather than answering under limits nobody chose (Law 3).
+BASELINE_TTL_S = 3600
 _GUARD: Guard | None = None
 _GUARD_BUILT_AT = 0.0
-_GUARD_LOCK = threading.Lock()
+_GUARD_LOCK = threading.Lock()          # guards the reference, never a build
+_REFRESHING = False
+
+
+def _refresh(pol: Policy) -> Guard:
+    """Build a Guard and publish it. Slow; never call holding _GUARD_LOCK."""
+    global _GUARD, _GUARD_BUILT_AT, _REFRESHING
+    try:
+        guard = Guard(pol)
+        with _GUARD_LOCK:
+            _GUARD, _GUARD_BUILT_AT = guard, time.monotonic()
+        return guard
+    finally:
+        with _GUARD_LOCK:
+            _REFRESHING = False
 
 
 def _guard() -> Guard:
-    global _GUARD, _GUARD_BUILT_AT
+    """The current Guard, without ever waiting for an archive scan."""
+    global _REFRESHING
     pol = load_policy()
-    now = time.monotonic()
     with _GUARD_LOCK:
-        stale = (_GUARD is None
-                 or _GUARD.policy.sha256 != pol.sha256
-                 or now - _GUARD_BUILT_AT > BASELINE_TTL_S)
-        if stale:
-            _GUARD = Guard(pol)
-            _GUARD_BUILT_AT = now
-        return _GUARD
+        current, built = _GUARD, _GUARD_BUILT_AT
+        changed = current is not None and current.policy.sha256 != pol.sha256
+        expired = current is not None and time.monotonic() - built > BASELINE_TTL_S
+        start = (current is None or changed or expired) and not _REFRESHING
+        if start:
+            _REFRESHING = True
+
+    if current is None:
+        # Cold start: there is nothing to serve. The first caller builds; any
+        # caller arriving during that build is told to retry rather than left
+        # to hang on the lock until nginx gives up on it.
+        if start:
+            return _refresh(pol)
+        raise ToolError("baselines are still being built from the recorded "
+                        "archive; retry in a moment")
+
+    if start:
+        threading.Thread(target=_refresh, args=(pol,), daemon=True,
+                         name="baseline-refresh").start()
+    if changed:
+        raise ToolError("the safety settings changed and the baselines are "
+                        "being rebuilt under them; retry in a moment")
+    return current
 
 
 def evaluate_order(args: dict[str, Any]) -> dict[str, Any]:

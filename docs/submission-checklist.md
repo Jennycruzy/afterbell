@@ -12,8 +12,8 @@ actions that still need an outside destination.
 - [x] The current order limit is stored in signed settings, and this public
   build does not place orders.
 - [x] New exposure requires a recent signed account-position report.
-- [x] The published data report contains 39,365 measured books, 35,520
-  reference prints, 781 regular-hours observations per token, and 1,440
+- [x] The published data report contains 39,895 measured books, 36,045
+  reference prints, 868 regular-hours observations per token, and 1,440
   holiday observations per token.
 - [x] Backup verification and the 14-day retention policy are deployed; no
   production archive has reached the deletion boundary yet.

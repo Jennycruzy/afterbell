@@ -1,8 +1,8 @@
 # AFTERBELL — current status
 
 Updated **8 September 2026 UTC**. This page is the operational companion to
-the [live dashboard](https://afterbell.site). It separates what is running,
-what is running, what is measured, and the known operating boundaries.
+the [live dashboard](https://afterbell.site). It separates what is running, what is
+measured, and the known operating boundaries.
 
 ## The short version
 
@@ -48,16 +48,18 @@ is not open through the firewall.
 
 The published reports currently contain:
 
-- 39,365 measured books and 35,520 reference prints;
-- 781 regular-hours observations per supported token, with 300 required;
+- 39,895 measured books and 36,045 reference prints;
+- 868 regular-hours observations per supported token, with 300 required;
 - 1,440 holiday observations per supported token;
 - 35 hostile request patterns tested against two market conditions;
 - zero hostile inputs that increased the permitted amount;
 - 6/6 positive controls, showing that the test cannot pass by refusing every
-  request; and
-- a 1.00% refusal rate inside the specifically defined normal-book sample.
+  request;
+- a 1.00% refusal rate inside the specifically defined normal-book sample; and
+- 10 refusals for a missing signed account report, counted separately because
+  they refuse on an absent input rather than on a measurement.
 
-The live ledger is above 6,600 recorded decisions. The dashboard carries the
+The live ledger is above 6,790 recorded decisions. The dashboard carries the
 current counter and timestamps; the generated reports carry the reproducible
 checkpoint used for the published measurements.
 

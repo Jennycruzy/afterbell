@@ -69,6 +69,7 @@ class LedgerSummary:
     closing_ramp: int          # reductions into the bell: designed, not error
     correct_reductions: int    # something measured really was out of band
     uncalibrated_blocks: int
+    missing_account_evidence: int   # refused for absent input, not a bad book
     refused_by_state: dict[str, int]
     freeze_refusals: int
 
@@ -129,6 +130,7 @@ def summarise_ledger(path: str | Path = LEDGER) -> LedgerSummary:
     as correct, because they are.
     """
     total = rth_live = normal = normal_permitted = fps = 0
+    exposure = 0
     ramp = correct = uncal = freeze = 0
     by_state: Counter[str] = Counter()
 
@@ -160,6 +162,17 @@ def summarise_ledger(path: str | Path = LEDGER) -> LedgerSummary:
         if spread > 1.0 or depth < 1.0:
             correct += decision not in PERMITTING
             continue                       # a measurement really was out of band
+        if binding == "P7" and decision not in PERMITTING:
+            # A refusal for missing account evidence is a refusal on an absent
+            # input, exactly like the uncalibrated-baseline case above, and it
+            # belongs with it rather than in the false-positive cohort. The
+            # book being normal says nothing about it: what was missing was a
+            # signed position report, which no property of the book supplies.
+            # Counting these as false positives measured whether the caller
+            # sent a snapshot, not whether the guard was precise, and the rate
+            # climbed for every minute the monitor probed without one.
+            exposure += 1
+            continue
 
         normal += 1
         if decision in PERMITTING:
@@ -176,7 +189,8 @@ def summarise_ledger(path: str | Path = LEDGER) -> LedgerSummary:
         total=total, rth_live=rth_live, normal_book=normal,
         normal_permitted=normal_permitted, false_positives=fps,
         closing_ramp=ramp, correct_reductions=correct,
-        uncalibrated_blocks=uncal, refused_by_state=dict(by_state),
+        uncalibrated_blocks=uncal, missing_account_evidence=exposure,
+        refused_by_state=dict(by_state),
         freeze_refusals=freeze)
 
 
@@ -212,6 +226,8 @@ def render(adv: AdversarialSummary, led: LedgerSummary, *,
          f"{led.correct_reductions:,}"),
         ("Refusals before data coverage was complete",
          f"{led.uncalibrated_blocks:,}"),
+        ("Refusals for a missing signed account report",
+         f"{led.missing_account_evidence:,}"),
         ("Refusals under a shut or stale reference market",
          f"{sum(led.refused_by_state.values()):,}"),
         ("Operator freeze refusals", f"{led.freeze_refusals:,}"),
@@ -234,6 +250,18 @@ def render(adv: AdversarialSummary, led: LedgerSummary, *,
         "size is a false positive. Reductions where a measurement *was* out "
         "of band are counted separately as correct, and refusals during a "
         "closure are not counted at all, because the market really was shut.",
+        "",
+        "**Refusals for a missing signed account report are counted "
+        "separately, not as false positives.** They are refusals on an absent "
+        "input rather than on a measurement, in the same way as a refusal "
+        "made before the baseline had enough observations. The continuous "
+        "monitor is unauthenticated and sends no position report, so once "
+        "that requirement was enabled every one of its regular-hours probes "
+        "was refused; scoring those as false positives measured whether the "
+        "caller had attached a snapshot, not whether the guard was precise, "
+        "and drove the published rate up for every minute the market stayed "
+        "open. They are counted and published in the row above so the "
+        "exclusion is visible rather than quiet.",
         "",
         "**What the cohort is made of.** The continuous monitor requests a "
         "constant `base_notional` — 5,000 USDT — once a minute, so this is one "

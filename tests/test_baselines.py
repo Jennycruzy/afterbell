@@ -78,3 +78,88 @@ def test_rolling_window_excludes_old_rth_samples():
     b = build(old + recent, min_samples=1, window_days=7,
               now=datetime(2026, 9, 10, 12, tzinfo=timezone.utc))["NVDABUSDT"]
     assert b.n_rth == 5
+
+
+def _write_day(tmp_path, records, *, partial=False):
+    """Write an archive day the way the recorder does: append-only JSONL."""
+    import json
+    day = tmp_path / "2026-09-04"
+    day.mkdir(exist_ok=True)
+    path = day / "token.jsonl"
+    with path.open("a", encoding="utf-8") as fh:
+        for r in records:
+            fh.write(json.dumps(r) + "\n")
+        if partial:
+            fh.write('{"symbol": "NVDABUSDT", "ts": "2026-09-04T15:0')
+    return path
+
+
+def _rth(n, start=0):
+    """Regular-hours books: 2026-09-04 is a Friday, 14:30Z is inside the open."""
+    return [rec("NVDABUSDT", f"2026-09-04T15:{(start + i) % 60:02d}:00Z",
+                225.0, 225.1) for i in range(n)]
+
+
+def test_the_sample_cache_returns_exactly_what_a_fresh_parse_returns(
+        tmp_path, monkeypatch):
+    from afterbell import baselines as bl
+    monkeypatch.setattr(bl, "CACHE", tmp_path / "cache")
+    path = _write_day(tmp_path, _rth(5))
+
+    fresh = bl._day_samples(path, 1.0, use_cache=False)
+    cached = bl._day_samples(path, 1.0, use_cache=True)
+
+    assert len(fresh) == 5
+    assert cached == fresh
+
+
+def test_the_cache_measures_only_what_was_appended(tmp_path, monkeypatch):
+    """The archive is append-only, so a rebuild must not re-read the past."""
+    from afterbell import baselines as bl
+    monkeypatch.setattr(bl, "CACHE", tmp_path / "cache")
+    path = _write_day(tmp_path, _rth(4))
+    assert len(bl._day_samples(path, 1.0, use_cache=True)) == 4
+    after_first_pass = path.stat().st_size
+
+    offsets = []
+    real = bl._measure_from
+
+    def spy(day_file, offset, band):
+        offsets.append(offset)
+        return real(day_file, offset, band)
+
+    monkeypatch.setattr(bl, "_measure_from", spy)
+    _write_day(tmp_path, _rth(3, start=10))
+    again = bl._day_samples(path, 1.0, use_cache=True)
+
+    assert offsets == [after_first_pass]     # resumed at the byte it stopped on
+    assert len(again) == 7
+    assert again == bl._day_samples(path, 1.0, use_cache=False)
+
+
+def test_a_half_written_line_is_left_for_the_next_pass(tmp_path, monkeypatch):
+    """The recorder is mid-write; a torn line must never become a sample."""
+    from afterbell import baselines as bl
+    monkeypatch.setattr(bl, "CACHE", tmp_path / "cache")
+    path = _write_day(tmp_path, _rth(3), partial=True)
+
+    first = bl._day_samples(path, 1.0, use_cache=True)
+    assert len(first) == 3
+
+    # the recorder finishes that line and adds another
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write('0:00Z", "bids": [["225.0", "1"]], "asks": [["225.1", "1"]]}\n')
+    second = bl._day_samples(path, 1.0, use_cache=True)
+
+    assert second == bl._day_samples(path, 1.0, use_cache=False)
+
+
+def test_a_truncated_archive_file_is_rebuilt_from_the_start(tmp_path, monkeypatch):
+    from afterbell import baselines as bl
+    monkeypatch.setattr(bl, "CACHE", tmp_path / "cache")
+    path = _write_day(tmp_path, _rth(6))
+    assert len(bl._day_samples(path, 1.0, use_cache=True)) == 6
+
+    path.write_text("")                      # rotated away underneath us
+    _write_day(tmp_path, _rth(2))
+    assert len(bl._day_samples(path, 1.0, use_cache=True)) == 2

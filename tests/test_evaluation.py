@@ -8,7 +8,7 @@ import json
 import pytest
 
 from afterbell.evaluation import (
-    render, run_adversarial, summarise_ledger,
+    AdversarialSummary, render, run_adversarial, summarise_ledger,
 )
 
 
@@ -137,3 +137,42 @@ def test_the_suite_cannot_win_by_refusing_everything(adv):
 def test_the_corpus_runs_against_more_than_one_market(adv):
     assert adv.snapshots >= 2
     assert adv.runs == adv.attacks * adv.snapshots
+
+
+def test_a_missing_account_report_block_is_not_a_false_positive(tmp_path):
+    """A refusal on an absent input is not a refusal on a normal book.
+
+    The continuous monitor is unauthenticated and sends no position report, so
+    once that requirement was enabled every regular-hours probe was blocked on
+    P7. Scored inside the cohort those measured whether the caller attached a
+    snapshot rather than whether the guard was precise, and pushed the
+    published rate from 1.00% to 9.17% in a single session.
+    """
+    s = summarise_ledger(write(tmp_path, [
+        rec(),
+        rec(decision="BLOCK", binding_constraint="P7"),
+    ]))
+    assert s.missing_account_evidence == 1
+    assert s.false_positives == 0
+    assert s.normal_book == 1
+    assert s.false_positive_rate == 0.0
+
+
+def test_the_missing_account_report_count_is_published(tmp_path):
+    """Excluded from the rate, but never silently: it has its own row."""
+    s = summarise_ledger(write(tmp_path, [
+        rec(decision="BLOCK", binding_constraint="P7")] * 3))
+    adv = AdversarialSummary(attacks=1, snapshots=1, runs=1,
+                             raised_above_control=0, positive_controls=1,
+                             positive_controls_passed=1,
+                             refusals_expected=1, refusals_correct=1)
+    assert "Refusals for a missing signed account report | 3" in render(adv, s)
+
+
+def test_a_permitted_p7_evaluation_stays_in_the_cohort(tmp_path):
+    """Only a refusal is excluded; a P7 that permitted in full still counts."""
+    s = summarise_ledger(write(tmp_path, [
+        rec(binding_constraint="P7")]))
+    assert s.missing_account_evidence == 0
+    assert s.normal_book == 1
+    assert s.normal_permitted == 1

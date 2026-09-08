@@ -219,6 +219,16 @@ _PUBLIC_STATES = {
     "CLOSED_HOLIDAY": "Market holiday", "HALTED": "Trading paused",
     "UNKNOWN": "Unknown",
 }
+
+# The generated calibration table publishes the reader-facing label ("Open"),
+# not the canonical state ("RTH_OPEN"), so reading that table back means
+# translating in the other direction. Both spellings are accepted: a report
+# generated before the labels changed is still a valid report.
+_STATE_BY_LABEL = {label: state for state, label in _PUBLIC_STATES.items()}
+
+
+def _canonical_state(cell: str) -> str:
+    return _STATE_BY_LABEL.get(cell, cell)
 _PUBLIC_WORDS = {
     "UNCALIBRATED": "data coverage pending", "CALIBRATED": "data coverage complete",
     "PROTECTED": "protected",
@@ -342,7 +352,7 @@ def _published_baselines(min_samples: int) -> dict[str, bl.Baseline]:
                  for cell in line.split("|")[1:-1]]
         if len(cells) < 5 or cells[0] not in TOKEN_SYMBOLS:
             continue
-        symbol, state = cells[0], cells[1]
+        symbol, state = cells[0], _canonical_state(cells[1])
         try:
             count = int(cells[2])
             spread = float(cells[3])

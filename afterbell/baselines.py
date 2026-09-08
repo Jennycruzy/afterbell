@@ -83,6 +83,109 @@ def iter_records(raw_dir: Path | None = None) -> Iterator[dict]:
                     yield json.loads(line)
 
 
+# ---------------------------------------------------------------------------
+# Measured-sample cache.
+#
+# Rebuilding a baseline used to re-read and re-parse the whole raw archive.
+# That cost is not a constant: full-depth books made the archive grow about
+# 1.2 GB a day, the scan went from 33s to over 13 minutes on this two-core
+# box, and a server that made a caller wait for it answered 504 instead. The
+# work was also entirely redundant, because a day's records never change once
+# that day is over.
+#
+# So each day's file is measured once. The archive is append-only JSONL, so a
+# cache can record how many bytes it has already consumed and, on the next
+# pass, measure only what was appended since. A partial trailing line is left
+# unconsumed and picked up next time, which is what makes this safe to run
+# against the file the recorder is still writing to.
+#
+# The cache holds measurements, never decisions, and is keyed by depth band
+# because the band changes what depth means. Deleting it costs time, not
+# correctness.
+# ---------------------------------------------------------------------------
+CACHE = ROOT / "data" / "cache" / "samples"
+
+
+def _cache_path(day_file: Path, band_pct: float) -> Path:
+    return CACHE / f"band-{band_pct:g}" / f"{day_file.parent.name}.json"
+
+
+def _load_cache(path: Path) -> tuple[int, list]:
+    try:
+        blob = json.loads(path.read_text())
+        return int(blob["offset"]), list(blob["samples"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0, []
+
+
+def _store_cache(path: Path, offset: int, rows: list) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"offset": offset, "samples": rows}))
+        tmp.replace(path)                  # atomic: never a half-written cache
+    except OSError:
+        pass                               # a cache that cannot be written is
+                                           # a slow build, not a wrong one
+
+
+def _measure_from(day_file: Path, offset: int, band_pct: float) -> tuple[list, int]:
+    """Measure the records appended after `offset`. Returns rows and the new
+    offset, which only ever advances past complete lines."""
+    rows: list = []
+    consumed = offset
+    with day_file.open("rb") as fh:
+        fh.seek(offset)
+        for raw in fh:
+            if not raw.endswith(b"\n"):
+                break                      # the recorder is mid-write; leave it
+            consumed += len(raw)
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            s = to_sample(rec, band_pct)
+            if s is not None:
+                rows.append([s.ts.isoformat(), s.symbol, s.state.value,
+                             s.half_spread_bps, s.depth_1pct])
+    return rows, consumed
+
+
+def _day_samples(day_file: Path, band_pct: float, use_cache: bool) -> list[Sample]:
+    if not use_cache:
+        rows, _ = _measure_from(day_file, 0, band_pct)
+    else:
+        cache = _cache_path(day_file, band_pct)
+        offset, rows = _load_cache(cache)
+        try:
+            size = day_file.stat().st_size
+        except OSError:
+            size = 0
+        if offset > size:                  # truncated or rotated: start over
+            offset, rows = 0, []
+        fresh, new_offset = _measure_from(day_file, offset, band_pct)
+        if fresh or new_offset != offset:
+            rows = rows + fresh
+            _store_cache(cache, new_offset, rows)
+    return [Sample(symbol=r[1],
+                   ts=datetime.fromisoformat(r[0]),
+                   state=MarketState(r[2]),
+                   half_spread_bps=r[3],
+                   depth_1pct=r[4])
+            for r in rows]
+
+
+def iter_samples(band_pct: float = 1.0, raw_dir: Path | None = None, *,
+                 use_cache: bool = True) -> Iterator[Sample]:
+    """Every measured sample in the archive, day by day."""
+    base = raw_dir or RAW
+    for path in sorted(glob.glob(str(base / "*" / "token.jsonl"))):
+        yield from _day_samples(Path(path), band_pct, use_cache)
+
+
 def to_sample(rec: dict, band_pct: float = 1.0) -> Sample | None:
     """Measure one recorded book. None when it cannot be measured (Law 3)."""
     book = Book.from_record(rec)
@@ -120,24 +223,38 @@ def _record_ts(rec: dict) -> datetime | None:
         return None
 
 
-def build(records: Iterable[dict] | None = None, *, min_samples: int = 300,
-          band_pct: float = 1.0, window_days: float | None = None,
-          now: datetime | None = None) -> dict[str, Baseline]:
-    """Build per-symbol baselines from recorded books."""
-    recs = records if records is not None else iter_records()
-    cutoff = _cutoff(window_days, now)
-    rth_spread: dict[str, list[float]] = defaultdict(list)
-    rth_depth: dict[str, list[float]] = defaultdict(list)
-    by_state: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+def _measured(records: Iterable[dict] | None, band_pct: float,
+              cutoff: datetime | None) -> Iterator[Sample]:
+    """Samples to build from, cached when reading the archive itself.
 
-    for rec in recs:
+    `Book.from_record` parses the same `ts` field `_record_ts` does, so the
+    cutoff selects the same records on either path.
+    """
+    if records is None:
+        for s in iter_samples(band_pct):
+            if cutoff is None or s.ts >= cutoff:
+                yield s
+        return
+    for rec in records:
         if cutoff is not None:
             ts = _record_ts(rec)
             if ts is None or ts < cutoff:
                 continue
         s = to_sample(rec, band_pct)
-        if s is None:
-            continue
+        if s is not None:
+            yield s
+
+
+def build(records: Iterable[dict] | None = None, *, min_samples: int = 300,
+          band_pct: float = 1.0, window_days: float | None = None,
+          now: datetime | None = None) -> dict[str, Baseline]:
+    """Build per-symbol baselines from recorded books."""
+    cutoff = _cutoff(window_days, now)
+    rth_spread: dict[str, list[float]] = defaultdict(list)
+    rth_depth: dict[str, list[float]] = defaultdict(list)
+    by_state: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for s in _measured(records, band_pct, cutoff):
         by_state[s.symbol][s.state.value] += 1
         if s.state is MarketState.RTH_OPEN:
             rth_spread[s.symbol].append(s.half_spread_bps)
@@ -167,16 +284,9 @@ def state_distribution(records: Iterable[dict] | None = None,
     measured percentiles, and what the published calibration table is built on.
     """
     acc: dict[tuple[str, str], list[Sample]] = defaultdict(list)
-    recs = records if records is not None else iter_records()
     cutoff = _cutoff(window_days, now)
-    for rec in recs:
-        if cutoff is not None:
-            ts = _record_ts(rec)
-            if ts is None or ts < cutoff:
-                continue
-        s = to_sample(rec, band_pct)
-        if s is not None:
-            acc[(s.symbol, s.state.value)].append(s)
+    for s in _measured(records, band_pct, cutoff):
+        acc[(s.symbol, s.state.value)].append(s)
 
     out: dict[str, dict[str, dict]] = defaultdict(dict)
     for (symbol, state), samples in sorted(acc.items()):

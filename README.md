@@ -61,10 +61,10 @@ live source for changing counters and timestamps.
 | What a reviewer can verify | Current state |
 |---|---|
 | Supported instruments | 5 token pairs with checked registry entries |
-| Measured books / reference prints | 39,365 / 35,520 in the published data report |
-| Normal-hours data coverage | 781 observations per token; 300 required |
+| Measured books / reference prints | 39,895 / 36,045 in the published data report |
+| Normal-hours data coverage | 868 observations per token; 300 required |
 | Holiday data coverage | 1,440 observations per token |
-| Recorded decisions | 6,600+ live receipts |
+| Recorded decisions | 6,790+ live receipts |
 | Order limit | $5,000 base request; market checks can reduce it |
 | Current decision | $0 allowed because a recent signed account-position report was not supplied |
 | Data archive | Live and updating |
@@ -143,7 +143,10 @@ The current generated safety report records:
   refusing every request;
 - 99 of 100 normal-book requests permitted at full requested size;
 - a measured 1.00% refusal rate inside that specifically defined normal-book
-  cohort; and
+  cohort, the single case being the designed closing-bell ramp;
+- 10 refusals for a missing signed account report, counted and published
+  separately because they are refusals on an absent input rather than on a
+  measurement; and
 - six recorder and measurement issues found by the project's own tooling
   and then fixed.
 
