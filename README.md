@@ -10,16 +10,154 @@ It does not predict prices. It does not choose trades. It does not hold an
 exchange credential. It makes the dangerous moments visible and makes unsafe
 size impossible to approve by accident.
 
-## See the product
+Built for the **Binance Agent OS Mini Hackathon, Track A**.
 
-**Live dashboard:** <https://afterbell.site>
+| | |
+|---|---|
+| **Live dashboard** | <https://afterbell.site> — running now, updates every minute |
+| **Public MCP endpoint** | `https://afterbell.site/mcp` — three read-only tools, no key needed |
+| **How it fits together** | [Architecture](#architecture) |
+| **Connect an agent** | [Connect your AI agent](#connect-your-ai-agent) |
+| **Measured baselines** | [`docs/calibration.md`](docs/calibration.md) |
+| **Safety-test results** | [`docs/evaluation.md`](docs/evaluation.md) |
+| **The one real order** | [`docs/live-acceptance.md`](docs/live-acceptance.md) |
 
-The public dashboard is deliberately operational rather than decorative. In
-one screen it shows the live reference age, price difference, liquidity,
-account-exposure evidence, the reason an amount was allowed or refused, the
-recorded decision history, backup health, and the data behind the limits.
+## Architecture
 
-The dashboard monitors conditions and sizes requests; it does not place an order.
+AFTERBELL is not the agent and does not want to be. It is a boundary any agent
+can put in front of itself. Three parties, and each owns exactly one thing:
+
+```text
+                      ┌───────────────────────────────────┐
+                      │     any MCP-capable AI agent      │
+                      │  owns the intent: what to trade   │
+                      └─────────────────┬─────────────────┘
+                                        │
+                  ┌─────────────────────┴─────────────────────┐
+                  │ 1. ask what is safe                       │ 3. submit,
+                  ▼                                           ▼    never more
+    ┌──────────────────────────────┐          ┌──────────────────────────────┐
+    │      AFTERBELL over MCP      │          │       Binance Agent OS       │
+    │  owns the limit · no key     │          │  owns execution · holds key  │
+    ├──────────────────────────────┤          ├──────────────────────────────┤
+    │  get_safety_posture          │          │  authenticated order tools   │
+    │  get_market_state            │          │                              │
+    │  evaluate_order              │          │                              │
+    └──────────────┬───────────────┘          └──────────────────────────────┘
+                   │ 2. permitted size, the reason,
+                   │    and a signed authorization
+                   │    bound to this one request
+                   └──────────────────────────────────────────┘
+```
+
+The agent owns intent. AFTERBELL owns the deterministic limit. Agent OS owns
+authenticated execution. No party does another's job, and the limit is decided
+by ordinary code rather than by a model.
+
+Inside AFTERBELL, one request travels a straight line:
+
+```text
+recorded token books + reference prices + exchange calendar
+                              │
+                              ▼
+             deterministic measurements and instrument checks
+                              │
+                              ▼
+             smallest safe amount + plain-language explanation
+                              │
+                              ▼
+                 recorded decision + order limit
+                              │
+                              ▼
+                   hash-linked receipt ledger
+```
+
+The recorder runs separately from the dashboard and holds no credential. The
+dashboard shows the current order limit and cannot place an order.
+
+## Connect your AI agent
+
+AFTERBELL is a peer on the protocol, not an adapter for one product. Any
+MCP-capable agent can connect to AFTERBELL and to Binance Agent OS at the same
+time, ask AFTERBELL what size is defensible, and submit no more than that.
+
+There is no key and no account. The worst a caller can do is learn that their
+order would be refused, which is why the endpoint can be public:
+
+```bash
+curl -sS https://afterbell.site/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"evaluate_order",
+                 "arguments":{"symbol":"NVDABUSDT","side":"BUY",
+                              "notional":5000,"query":"buy 5000 of Nvidia"}}}'
+```
+
+That is a plain HTTP client with no SDK, which is the point: nothing about the
+surface is specific to one agent framework.
+
+**Example, using the Codex CLI as one supported client:**
+
+```bash
+codex mcp add afterbell --url https://afterbell.site/mcp
+```
+
+The two servers then sit side by side in the same client, which is the
+architecture above with nothing else added:
+
+```text
+Name              Url                                    Status   Auth
+afterbell         https://afterbell.site/mcp             enabled  Unsupported
+binance-agent-os  https://agent.binance.com/mcp/agentic  enabled  OAuth
+```
+
+`Unsupported` in the auth column is the correct reading: AFTERBELL has no
+sign-in because it has nothing to protect. The credential lives on the other
+row, with the party whose job is execution. Codex is one client that has been
+used against this server, including for the recorded live order; it is not a
+dependency.
+
+### What the agent actually sees
+
+Taken from the live endpoint on 8 September 2026 at 16:48 UTC. First the agent
+asks what has changed while it was not looking:
+
+```text
+get_safety_posture
+
+  market_state      RTH_OPEN          liquidity        normal
+  reference         fresh             price_agreement  NOMINAL
+  venue_status      trading           account_evidence missing
+  verdict           BLOCK
+  authorizes        null
+```
+
+Then it proposes the trade it wants:
+
+```text
+evaluate_order  NVDABUSDT  BUY  5000 USDT  "buy 5000 of Nvidia"
+
+  verdict          BLOCK
+  requested        5000.0
+  permitted        0.0
+  binding check    Account exposure
+  reference age    00:00:01
+  receipt          #6912
+
+  Market timing        PASS      Instrument identity  PASS
+  Liquidity            PASS      Contract address     PASS
+  Price agreement      PASS      Account exposure     BLOCK
+  Corporate actions    WARN
+```
+
+Six checks are healthy and the seventh is not, so the answer is zero. A
+well-behaved agent stops there. The refusal is receipted in the same
+hash-linked ledger as every other decision, so what it was told is on the
+record whether or not it listened.
+
+For contrast, the one order that has run this path end to end asked for 5.00
+USDT, was permitted 5.00, and spent 4.86192 — venue order `54422149`, recorded
+in [`docs/live-acceptance.md`](docs/live-acceptance.md).
 
 ## The problem
 
@@ -231,28 +369,6 @@ historical trade capture was uneven before the recorder fix, so the honest
 result is “not enough balanced evidence yet.” The limitation is documented in
 [`docs/counterparty.md`](docs/counterparty.md).
 
-## Architecture in one glance
-
-```text
-recorded token books + reference prices + exchange calendar
-                              │
-                              ▼
-             deterministic measurements and instrument checks
-                              │
-                              ▼
-             smallest safe amount + plain-language explanation
-                              │
-                              ▼
-                 recorded decision + order limit
-                              │
-                              ▼
-                   hash-linked receipt ledger
-```
-
-The recorder runs separately from the dashboard and has no credential. The
-public MCP surface exposes evaluation and market-state tools. The dashboard
-shows the current order limit and cannot place an order.
-
 ## Run it locally
 
 ```bash
@@ -277,8 +393,8 @@ decision = guard.evaluate(
 print(decision.allowed_notional, decision.rationale)
 ```
 
-The public MCP endpoint provides `evaluate_order` and `get_market_state`.
-The public dashboard and MCP server do not place an order.
+The public MCP endpoint provides `evaluate_order`, `get_market_state` and
+`get_safety_posture`. The public dashboard and MCP server do not place an order.
 
 ## Read next
 

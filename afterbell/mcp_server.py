@@ -6,11 +6,13 @@ and this one at the same time, and has to ask permission before it acts. The
 guard stops being a component of one project and becomes a boundary anyone can
 put in front of their own.
 
-Two tools, both read-only:
+Three tools, all read-only:
 
     evaluate_order(symbol, side, notional, query)  -> the full decision
     get_market_state(symbol)                       -> state, REFERENCE_AGE,
                                                       basis, liquidity ratio
+    get_safety_posture()                           -> what the unattended
+                                                      monitor noticed, and why
 
 No authentication and no credential, which is the point and is also consistent
 with the central claim of this repository: nothing in it can trade. The worst a
