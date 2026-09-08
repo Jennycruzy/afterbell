@@ -24,30 +24,44 @@ Built for the **Binance Agent OS Mini Hackathon, Track A**.
 
 ## Architecture
 
-AFTERBELL is not the agent and does not want to be. It is a boundary any agent
-can put in front of itself. Three parties, and each owns exactly one thing:
+AFTERBELL is the safety boundary inside an Agent OS trading-agent workflow.
+Any MCP-capable AI agent can use it before it acts. Three parties, and each
+owns exactly one thing:
 
 ```text
-                      ┌───────────────────────────────────┐
-                      │     any MCP-capable AI agent      │
-                      │  owns the intent: what to trade   │
-                      └─────────────────┬─────────────────┘
-                                        │
-                  ┌─────────────────────┴─────────────────────┐
-                  │ 1. ask what is safe                       │ 3. submit,
-                  ▼                                           ▼    never more
-    ┌──────────────────────────────┐          ┌──────────────────────────────┐
-    │      AFTERBELL over MCP      │          │       Binance Agent OS       │
-    │  owns the limit · no key     │          │  owns execution · holds key  │
-    ├──────────────────────────────┤          ├──────────────────────────────┤
-    │  get_safety_posture          │          │  authenticated order tools   │
-    │  get_market_state            │          │                              │
-    │  evaluate_order              │          │                              │
-    └──────────────┬───────────────┘          └──────────────────────────────┘
-                   │ 2. permitted size, the reason,
-                   │    and a signed authorization
-                   │    bound to this one request
-                   └──────────────────────────────────────────┘
+                    ┌─────────────────────────────────────┐
+                    │       any MCP-capable AI agent      │
+                    │    owns the intent: what to trade   │
+                    └──────┬───────────────────────┬──────┘
+                           │ 1. propose a trade    │
+                           ▼                       │
+        ┌──────────────────────────────────┐       │
+        │        AFTERBELL over MCP        │       │
+        │   owns the limit · holds no key  │       │
+        ├──────────────────────────────────┤       │
+        │  get_safety_posture              │       │
+        │  get_market_state                │       │
+        │  evaluate_order                  │       │
+        └──────────────┬───────────────────┘       │
+                       │ 2. current posture,       │
+                       │    permitted size,        │
+                       │    the reason,            │
+                       │    a decision receipt     │
+                       ▼                           │
+             the agent keeps to that ceiling       │
+                       │                           │
+                       │ 3. submit within it       │
+                       ▼                           ▼
+        ┌──────────────────────────────────────────────────┐
+        │                 Binance Agent OS                 │
+        │        owns execution · holds the credential     │
+        └──────────────────────────────────────────────────┘
+
+    Separately, when execution is enabled, AFTERBELL issues a signed
+    authorization bound to one specific proposal, which a supported
+    client redeems. That is the governed handoff below, not a value
+    these read-only tools return.
+```
 ```
 
 The agent owns intent. AFTERBELL owns the deterministic limit. Agent OS owns
@@ -79,10 +93,14 @@ dashboard shows the current order limit and cannot place an order.
 
 AFTERBELL is a peer on the protocol, not an adapter for one product. Any
 MCP-capable agent can connect to AFTERBELL and to Binance Agent OS at the same
-time, ask AFTERBELL what size is defensible, and submit no more than that.
+time, ask AFTERBELL what size is defensible, and restrict its Agent OS order to
+the ceiling that comes back. That last step is the agent's to honour: AFTERBELL
+governs its own handoff, not somebody else's credential.
 
-There is no key and no account. The worst a caller can do is learn that their
-order would be refused, which is why the endpoint can be public:
+The endpoint carries no account credential and has no execution capability. A
+caller can read state, or create a rate-limited safety evaluation which is
+receipted like any other; it cannot place an order. That is why it can be
+public:
 
 ```bash
 curl -sS https://afterbell.site/mcp \
@@ -163,9 +181,12 @@ well-behaved agent stops there. The refusal is receipted in the same
 hash-linked ledger as every other decision, so what it was told is on the
 record whether or not it listened.
 
-For contrast, the one order that has run this path end to end asked for 5.00
-USDT, was permitted 5.00, and spent 4.86192 — venue order `54422149`, recorded
-in [`docs/live-acceptance.md`](docs/live-acceptance.md).
+A separate recorded execution used the signed-authorization handoff rather than
+these tools: 5.00 USDT requested, 5.00 permitted, 4.86192 actually spent, venue
+order `54422149`, redeemed by `codex-binance-agent-os` and recorded in
+[`docs/live-acceptance.md`](docs/live-acceptance.md). The two are complementary
+proofs — that any compatible agent can query this server, and that the
+authorization path has produced a real fill — not one continuous demonstration.
 
 ## The problem
 
