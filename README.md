@@ -3,10 +3,43 @@
 > **The stock sleeps. The token doesn't.**
 
 **AFTERBELL is an autonomous safety agent for AI agents trading Binance bStocks
-through Agent OS.** It watches the always-open token market against the hours
-and condition of the U.S. stock market underneath it, notices material safety
-changes without being asked, and gives a trading agent the largest defensible
-order size before anything reaches execution.
+through Agent OS.**
+
+## The problem
+
+AI trading agents are good at deciding what they want to trade. What they
+usually do not have is an independent answer to a harder question:
+
+> **How much of that trade is still defensible right now?**
+
+That question is sharpest with tokenized shares. A bStock can trade 24 hours a
+day; the U.S. stock it references cannot. The stock trades during weekday
+sessions and then stops updating, so the token can keep moving all weekend or
+through a holiday while the most recent independent price of the company behind
+it grows older and older.
+
+A person feels this — they know it is Sunday. An agent does not. It sees a live
+market with live prices and treats three in the morning on Sunday exactly like
+Tuesday lunchtime, and will size an order against a price nothing in the real
+world has confirmed for two days.
+
+The same blind spot appears elsewhere: the order book thins out, the token
+drifts away from the price of the share it tracks, something happens to the
+company itself, the instrument cannot be identified exactly, or the account is
+already carrying exposure the agent never counted.
+
+An ordinary order-size check misses all of it. AFTERBELL treats each one as a
+measurement that shapes the answer:
+
+> **The longer the reference market has been quiet, the less new exposure the
+> system is willing to approve.**
+
+## What AFTERBELL does
+
+It watches the always-open token market against the hours and condition of the
+U.S. stock market underneath it, notices material safety changes without being
+asked, and gives a trading agent the largest defensible order size before
+anything reaches execution.
 
 The AI agent owns the trade intent. AFTERBELL independently owns the safety
 limit. Binance Agent OS owns authenticated execution.
@@ -252,23 +285,6 @@ order `54422149`, redeemed by `codex-binance-agent-os` and recorded in
 [`docs/live-acceptance.md`](docs/live-acceptance.md). The two are complementary
 proofs — that any compatible agent can query this server, and that the
 authorization path has produced a real fill — not one continuous demonstration.
-
-## The problem
-
-A tokenized share can trade 24 hours a day. The U.S. stock it references cannot:
-it trades during regular weekday sessions and then stops updating. A token can
-therefore keep moving for a weekend or holiday while the most recent independent
-stock price becomes older and older.
-
-A normal order-size check misses that time gap. AFTERBELL treats it as a first-
-class risk input:
-
-> **The longer the reference market has been quiet, the less new exposure the
-> system is willing to approve.**
-
-The same idea also applies when the token book becomes thin, the token and
-reference price disagree, the instrument cannot be identified exactly, or the
-current account position is unknown.
 
 ## What happens when a request arrives
 
