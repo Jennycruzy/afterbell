@@ -201,6 +201,131 @@ def _receipts(limit: int = 40) -> list[dict]:
     return _tail_records(RECEIPTS, limit)[::-1]
 
 
+
+_PUBLIC_CHECK_NAMES = (
+    "Market timing", "Liquidity", "Price agreement", "Corporate actions",
+    "Instrument identity", "Contract address", "Account exposure",
+)
+_PUBLIC_DECISIONS = {
+    "PASS": "Clear", "WARN": "Caution", "REDUCE": "Smaller size",
+    "BLOCK": "Blocked", "OK": "Healthy", "FAILED": "Failed",
+    "STALE": "Stale", "PENDING": "Not ready", "TRADING": "Trading",
+    "HALT": "Paused", "FILLED": "Filled", "UNKNOWN": "Unknown",
+    "OPERATOR_FREEZE": "Operator freeze",
+}
+_PUBLIC_STATES = {
+    "RTH_OPEN": "Open", "RTH_PRE": "Before open", "RTH_POST": "After close",
+    "CLOSED_OVERNIGHT": "Overnight closure", "CLOSED_WEEKEND": "Weekend closure",
+    "CLOSED_HOLIDAY": "Market holiday", "HALTED": "Trading paused",
+    "UNKNOWN": "Unknown",
+}
+_PUBLIC_WORDS = {
+    "UNCALIBRATED": "not yet approved", "CALIBRATED": "data complete",
+    "REQUIRED_BUT_MISSING": "required account report missing",
+    "NOT_SUPPLIED": "not provided", "NOT_APPLICABLE": "not applicable",
+    "RTH_OPEN": "regular trading hours", "RTH_PRE": "before the regular open",
+    "RTH_POST": "after the regular close", "CLOSED_WEEKEND": "weekend closure",
+    "CLOSED_HOLIDAY": "market holiday", "CLOSED_OVERNIGHT": "overnight closure",
+    "OPERATOR_FREEZE": "operator freeze", "TRADING": "trading",
+    "VERIFIED": "verified", "DEGRADED": "elevated", "BROKEN": "blocked",
+    "WATCH": "caution", "NOMINAL": "normal",
+}
+
+
+def _public_word(value: object, checks: list[str] | None = None) -> object:
+    if not isinstance(value, str):
+        return value
+    text = value
+    if checks and len(checks) == len(_PUBLIC_CHECK_NAMES):
+        for key, label in zip(checks, _PUBLIC_CHECK_NAMES):
+            text = text.replace(key, label)
+    for old, new in _PUBLIC_WORDS.items():
+        text = text.replace(old, new)
+    for old, new in _PUBLIC_DECISIONS.items():
+        text = text.replace(old, new)
+    return text
+
+
+def _public_state(data: dict) -> dict:
+    """Remove machine labels at the public dashboard/API boundary."""
+    public = dict(data)
+    raw_guard = dict(data.get("guard") or {})
+    raw_checks = dict(raw_guard.get("gates") or {})
+    raw_details = dict(raw_guard.get("gate_detail") or {})
+    check_keys = list(raw_checks)
+    guard = dict(raw_guard)
+    guard.pop("gates", None)
+    guard.pop("gate_detail", None)
+    guard.pop("binding_constraint", None)
+    guard["status"] = _PUBLIC_DECISIONS.get(raw_guard.get("status"), "Unknown")
+    guard["main_reason"] = _public_word(raw_guard.get("binding_constraint"), check_keys)
+    guard["rationale"] = _public_word(raw_guard.get("rationale"), check_keys)
+    guard["note"] = _public_word(raw_guard.get("note"), check_keys)
+    guard["market_state"] = _PUBLIC_STATES.get(
+        raw_guard.get("market_state"), "Unknown")
+    guard["checks"] = [
+        {"name": (_PUBLIC_CHECK_NAMES[i] if i < len(_PUBLIC_CHECK_NAMES)
+                   else "Safety check"),
+         "status": _PUBLIC_DECISIONS.get(status, "Unknown"),
+         "detail": _public_word(raw_details.get(key, "No recorded detail"),
+                                check_keys)}
+        for i, (key, status) in enumerate(raw_checks.items())
+    ]
+    measurements = dict(guard.get("measurements") or {})
+    for key, value in list(measurements.items()):
+        measurements[key] = _public_word(value, check_keys)
+    guard["measurements"] = measurements
+    public["guard"] = guard
+
+    raw_policy = dict(data.get("policy") or {})
+    policy = dict(raw_policy)
+    policy["safety_limits_ready"] = raw_policy.get("status") == "CALIBRATED"
+    policy.pop("status", None)
+    public["policy"] = policy
+
+    symbols = []
+    for row in data.get("symbols") or []:
+        item = dict(row)
+        item["status"] = _PUBLIC_DECISIONS.get(item.get("status"), "Unknown")
+        item["baseline_ready"] = item.pop("baseline_status", "") == "CALIBRATED"
+        by_state = item.pop("n_by_state", {}) or {}
+        item["holiday_samples"] = by_state.get("CLOSED_HOLIDAY", 0)
+        symbols.append(item)
+    public["symbols"] = symbols
+
+    receipts = []
+    for row in data.get("receipts") or []:
+        item = dict(row)
+        item["decision"] = _PUBLIC_DECISIONS.get(item.get("decision"), "Unknown")
+        item["rationale"] = _public_word(item.get("rationale"), check_keys)
+        raw_factors = item.pop("gate_factors", {}) or {}
+        item.pop("gate_detail", None)
+        item.pop("binding_constraint", None)
+        item["check_factors"] = [
+            {"name": (_PUBLIC_CHECK_NAMES[i] if i < len(_PUBLIC_CHECK_NAMES)
+                       else "Safety check"), "factor": factor}
+            for i, factor in enumerate(raw_factors.values())
+        ]
+        receipts.append(item)
+    public["receipts"] = receipts
+    public["calibration_markdown"] = _public_word(
+        data.get("calibration_markdown", ""), check_keys)
+
+    clock = dict(data.get("clock") or {})
+    clock["state"] = _PUBLIC_STATES.get(clock.get("state"), "Unknown")
+    public["clock"] = clock
+    public["build_status"] = ("Loading" if data.get("build_status") == "WARMING"
+                               else "Ready")
+    backup = dict(data.get("backup") or {})
+    backup["status"] = _PUBLIC_DECISIONS.get(backup.get("status"), "Unknown")
+    public["backup"] = backup
+    acceptance = dict(data.get("acceptance") or {})
+    acceptance["status"] = _PUBLIC_DECISIONS.get(
+        acceptance.get("status"), acceptance.get("status", "Unknown"))
+    public["acceptance"] = acceptance
+    public.pop("reference_age_source", None)
+    return public
+
 def _published_baselines(min_samples: int) -> dict[str, bl.Baseline]:
     """Load the generated calibration table used by the public dashboard."""
     by_symbol: dict[str, dict] = {}
@@ -466,7 +591,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         try:
             if self.path.startswith("/api/state"):
-                body = json.dumps(cached_state(), default=str).encode()
+                body = json.dumps(_public_state(cached_state()), default=str).encode()
                 return self._send(200, body, "application/json")
             if self.path in ("/", "/index.html"):
                 return self._send(200, PAGE.encode(), "text/html; charset=utf-8")

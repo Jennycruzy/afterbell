@@ -69,6 +69,21 @@ BATCH_LIMIT = 50           # historical pre-fix request; recorder now uses 1000
 BURST_MS = 200             # "multiple fills inside 200ms"
 ROUND_NOTIONALS = (10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0)
 
+# The recorder and clock use compact enum names internally. Reports are read by
+# people, so keep those implementation labels out of the published analysis.
+_PUBLIC_STATE_LABELS = {
+    "RTH_OPEN": "Open",
+    "RTH_PRE": "Before open",
+    "RTH_POST": "After close",
+    "CLOSED_OVERNIGHT": "Overnight closure",
+    "CLOSED_WEEKEND": "Weekend closure",
+    "CLOSED_HOLIDAY": "Market holiday",
+}
+
+
+def _public_state_label(state: str) -> str:
+    return _PUBLIC_STATE_LABELS.get(state, state.replace("_", " ").title())
+
 
 @dataclass(frozen=True)
 class Trade:
@@ -267,7 +282,7 @@ def diurnal_flatness(trades: list[Trade]) -> float | None:
     """Quietest hour's volume over the busiest hour's, across the whole day.
 
     Computed per symbol rather than per market state, because a state cannot
-    answer the question: `RTH_OPEN` covers 6.5 hours of the clock by
+    answer the question: the open session covers 6.5 hours of the clock by
     definition, so its "quietest hour" is an artefact of the session's edges
     rather than a fact about who is trading. The question is whether volume
     dips at 4am, and only the full day can answer it.
@@ -400,8 +415,8 @@ def finding(agg: dict[str, StateAggregate],
             by_symbol: dict[str, dict[str, StateMetrics]]) -> list[str]:
     """State what the numbers say, or refuse to state anything.
 
-    The hypothesis worth testing was that off-hours flow is more automated.
-    Answering it means comparing two market states, and that is only legitimate
+    The question worth testing was whether off-hours flow is more automated.
+    Answering it means comparing two market periods, and that is only legitimate
     when both were sampled the same way. They were not, for most of the
     recorded period, so this refuses rather than reporting a direction it
     cannot support — the same rule the baselines follow when a symbol has too
@@ -430,9 +445,9 @@ def finding(agg: dict[str, StateAggregate],
             "the honest result is to say so rather than to publish a "
             "direction.**",
             "",
-            f"The hypothesis worth testing was that the counterparty on the "
-            f"other side of a weekend trade is another agent. Answering it "
-            f"means comparing two market states, and that is only legitimate "
+            f"The question worth testing was whether the counterparty on the "
+            f"other side of a weekend trade is more automated. Answering it "
+            f"means comparing two market periods, and that is only legitimate "
             f"if both were sampled the same way. They were not: regular hours "
             f"were captured at {100 * (cov_rth or 0):.1f}% and the weekend at "
             f"{100 * (cov_wknd or 0):.1f}%, because a historical fixed 50-print poll "
@@ -448,9 +463,9 @@ def finding(agg: dict[str, StateAggregate],
             "hardest on the busiest state. A finding that flips depending on "
             "which of two flawed estimators is chosen is not a finding.",
             "",
-            "The cause was a recorder limit, not a market: `TRADE_LIMIT` was "
-            "50 prints per minute, which is written up as the sixth silent "
-            "failure. It was raised to 1000 on 2026-09-05 at 14:43 UTC, and "
+            "The cause was a recorder limit, not a market: it fetched only "
+            "50 prints per minute. That limit was raised to 1000 on 2026-09-05 "
+            "at 14:43 UTC, and "
             "since then every cycle has been captured with no holes at all. "
             "Once a full session and a full closure have been recorded that "
             "way, this comparison becomes answerable and the answer will "
@@ -491,21 +506,37 @@ def finding(agg: dict[str, StateAggregate],
 def render(by_symbol: dict[str, dict[str, StateMetrics]],
            coverage: dict[str, Coverage],
            diurnal: dict[str, float | None]) -> str:
-    lines = ["## Counterparty composition of off-hours flow", ""]
-
-    lines += [
-        "Computed from the trade prints the recorder already stores. bStocks "
-        "trade on a centralised order book, so on-chain wallet tracking cannot "
-        "see this flow; nothing here uses it.",
+    lines = [
+        "# Who trades when the reference market is closed?",
         "",
-        "### What was actually captured",
+        "> **Short answer:** this report does not claim that weekend flow is "
+        "more automated yet. The historical recorder captured regular hours "
+        "and closures at different rates, so that comparison would be "
+        "misleading. The recorder was corrected on 2026-09-05; one complete "
+        "like-for-like session is still needed before the result is publishable.",
         "",
-        "Before 2026-09-05 14:43 UTC, the recorder fetched the last 50 trades once a minute; that historical limit caused the coverage bias described below. It now fetches up to 1000 trades per cycle. Trade ids are "
-        "consecutive, so the size of anything missed is knowable exactly, and "
-        "is reported rather than assumed away.",
+        "**Why it matters:** Afterbell studies whether a tokenized equity keeps "
+        "a healthy market when the underlying reference market is closed, and "
+        "whether the trading pattern changes outside regular hours.",
+        "",
+        "**What is reliable today:** the capture coverage, trade counts, and "
+        "per-period measurements below. **What is not reliable yet:** a claim "
+        "that one period has a more automated counterparty than another.",
+        "",
+        "Computed from the trade records the recorder already stores. bStocks "
+        "trade on a centralised order book, so this analysis uses the public "
+        "trade tape rather than wallet tracking.",
+        "",
+        "## How much of the tape we captured",
+        "",
+        "Before 2026-09-05 14:43 UTC, the recorder fetched the last 50 trades "
+        "once a minute; that historical limit caused the coverage bias described "
+        "below. It now fetches up to 1000 trades per cycle. Trade ids are "
+        "consecutive, so the size of anything missed is knowable exactly and is "
+        "reported rather than assumed away.",
         "",
         "| Symbol | Prints captured | Prints that occurred | Share of tape | "
-        "Minutes with no hole | Diurnal flatness |",
+        "Minutes fully captured | Quietest/busiest hour |",
         "|---|---:|---:|---:|---:|---:|",
     ]
     for symbol in sorted(coverage):
@@ -523,14 +554,14 @@ def render(by_symbol: dict[str, dict[str, StateMetrics]],
         "only across pairs of arrivals with consecutive ids, where nothing "
         "can have been missed between them.",
         "",
-        "Diurnal flatness is the quietest hour's volume over the busiest "
-        "hour's across the whole day, so 1.0 is a market that never sleeps. "
-        "It is measured per symbol, not per state: a state cannot answer it, "
-        "because `RTH_OPEN` spans 6.5 hours of the clock by definition.",
+        "The quietest/busiest-hour ratio is the quietest hour's volume divided "
+        "by the busiest hour's volume across the whole day. A result of 1.0 "
+        "means activity is evenly spread. It is measured per symbol, not per "
+        "period, because the open session covers only 6.5 hours of the clock.",
         "",
-        "### By market state",
+        "## Measurements by market period",
         "",
-        "| Symbol | State | Prints | Arrivals | Timed pairs | "
+        "| Symbol | Market period | Prints | Arrivals | Timed pairs | "
         "Inter-arrival CV | Bursts <200ms | Prints per arrival | "
         "Round sizes | Repeated sizes |",
         "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
@@ -539,7 +570,7 @@ def render(by_symbol: dict[str, dict[str, StateMetrics]],
         for state in sorted(by_symbol[symbol]):
             m = by_symbol[symbol][state]
             lines.append(
-                f"| {symbol} | {state} | {m.trades:,} | {m.events:,} | "
+                f"| {symbol} | {_public_state_label(state)} | {m.trades:,} | {m.events:,} | "
                 f"{m.timed_pairs:,} | {_fmt(m.interarrival_cv)} | "
                 f"{_fmt(None if m.burst_rate is None else 100 * m.burst_rate, '.1f', '%')} | "
                 f"{_fmt(m.mean_sweep)} | "

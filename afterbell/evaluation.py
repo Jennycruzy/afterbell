@@ -1,10 +1,10 @@
-"""The judge-facing evaluation table, generated from evidence.
+"""The plain-language safety test report, generated from evidence.
 
 Every number here is computed from the adversarial corpus and the receipt
 ledger. Nothing is typed in by hand, because a table of safety claims that is
 maintained by hand is a table that drifts away from the system it describes.
 
-The number that matters most is the false-positive rate. A guard that refuses
+The number that matters most is the false-positive rate. A safety layer that refuses
 everything is trivially safe and completely useless, so the interesting
 question is not "did it block the attacks" but "did it stay out of the way the
 rest of the time". This module answers the second question from the ledger's
@@ -16,11 +16,11 @@ false-positive rate without its definition is a marketing number.
 The definition took two attempts, and the first one was wrong in a way worth
 recording. Counting every reduction during regular hours as a false positive
 produced 28.5%, but most of those reductions were correct: the spread really
-was 2.8x its own median, or the baseline really did have fewer samples than the
-policy requires. A guard that permitted those would be broken, not precise. The
+was 2.8x its own median, or the normal-hours comparison really did have too few
+observations. A safety layer that permitted those would be broken, not precise. The
 cohort below is therefore restricted to evaluations where the book was
-measurably normal — spread at or under its RTH median, depth at or over it, and
-the baseline calibrated — so a refusal inside it is a refusal with no measured
+measurably normal — spread at or under its regular-hours median, depth at or over it, and
+the normal-hours comparison complete — so a refusal inside it is a refusal with no measured
 cause behind it.
 """
 from __future__ import annotations
@@ -210,12 +210,12 @@ def render(adv: AdversarialSummary, led: LedgerSummary, *,
         ("Of which the designed closing-bell ramp", f"{led.closing_ramp:,}"),
         ("Correct reductions (a measurement really was out of band)",
          f"{led.correct_reductions:,}"),
-        ("Refusals while a baseline was still uncalibrated",
+        ("Refusals before data coverage was complete",
          f"{led.uncalibrated_blocks:,}"),
         ("Refusals under a shut or stale reference market",
          f"{sum(led.refused_by_state.values()):,}"),
         ("Operator freeze refusals", f"{led.freeze_refusals:,}"),
-        ("Silent failures found by this project's own tooling and fixed",
+        ("Recorder and measurement issues found by this project's own tooling and fixed",
          "6"),
     ]
     if books is not None and prints is not None:
@@ -228,8 +228,8 @@ def render(adv: AdversarialSummary, led: LedgerSummary, *,
         "",
         "**How the false-positive rate is defined.** The cohort is regular "
         "trading hours, with a live reference print, and a book that was "
-        "measurably normal: spread at or under its own RTH median, depth at "
-        "or over it, and the baseline past the sample minimum. Inside that "
+        "measurably normal: spread at or under its own regular-hours median, depth at "
+        "or over it, and the normal-hours comparison has enough observations. Inside that "
         "cohort nothing the policy measures was out of band, so any withheld "
         "size is a false positive. Reductions where a measurement *was* out "
         "of band are counted separately as correct, and refusals during a "
@@ -248,9 +248,9 @@ def render(adv: AdversarialSummary, led: LedgerSummary, *,
         "The first version of this definition counted every regular-hours "
         "reduction as a false positive and reported 28.5%. That was wrong: "
         "most of those reductions were responses to a spread several times "
-        "its own median, or to a baseline that had not yet reached its "
-        "sample minimum. A guard that permitted those would be broken, not "
-        "precise.",
+        "its own median, or to a normal-hours comparison that did not yet have "
+        "enough observations. A safety layer that permitted those would be "
+        "broken, not precise.",
         "",
         "Regenerate with `.venv/bin/python -m afterbell.evaluation`. Every figure above "
         "is computed from the adversarial corpus and the receipt ledger; none "

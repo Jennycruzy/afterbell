@@ -1,6 +1,6 @@
 """Calibration: replace every invented threshold with a measured one.
 
-Part VIII. A threshold you invented is a threshold a judge can dismiss, so this
+Part VIII. A threshold chosen without measurements can be challenged, so this
 module reads the recorded books and reference prints and produces the five
 things the specification asks for:
 
@@ -8,7 +8,7 @@ things the specification asks for:
   2. off-hours spread    - the same statistics over CLOSED_OVERNIGHT, so
                            Friday night has a comparison that predates the
                            weekend
-  3. basis distribution  - basis_bps by market state, with P3 bands proposed at
+  3. basis distribution  - basis_bps by market state, with price-difference bands proposed at
                            empirical percentiles rather than round numbers
   4. walk-cost curve     - marketable orders at $100 / $500 / $2,000 / $10,000
                            against recorded books, by state
@@ -16,7 +16,7 @@ things the specification asks for:
                            every number
 
 Law 1 governs the output. A statistic computed from too few samples is not a
-weaker statistic, it is not a statistic, and it is reported as UNCALIBRATED
+weaker statistic, it is not a statistic, and it is reported as data-incomplete
 rather than published with a caveat.
 
 Law 6 governs what happens next. This module never edits the live policy. It
@@ -45,6 +45,20 @@ from afterbell.measure import Book, BookProblem, Side, basis_bps, walk_cost_bps
 
 # The sizes the walk-cost curve is measured at, from Part VIII.
 LADDER_USDT = (100.0, 500.0, 2_000.0, 10_000.0)
+
+_PUBLIC_STATE_LABELS = {
+    "RTH_OPEN": "Open",
+    "RTH_PRE": "Before open",
+    "RTH_POST": "After close",
+    "CLOSED_OVERNIGHT": "Overnight closure",
+    "CLOSED_WEEKEND": "Weekend closure",
+    "CLOSED_HOLIDAY": "Market holiday",
+}
+
+
+def _public_state_label(state: str) -> str:
+    return _PUBLIC_STATE_LABELS.get(state, state.replace("_", " ").title())
+
 
 # How far apart a book and a reference print may be and still be treated as
 # simultaneous. The recorder writes both once a cycle, so a pairing wider than
@@ -275,13 +289,15 @@ def render_table(cal: Calibration, min_rth: int = 300) -> str:
              f"reference prints. Depth band ±{cal.band_pct:g}%; "
              f"baseline window: {window}.")
     L.append("")
-    L.append("### Session baselines (liquidity denominators)")
+    L.append("**Reader note:** this report shows whether the recorded data is deep enough to compare current conditions with normal conditions. It does not approve the safety limits used for live orders; those remain paused until an owner explicitly approves them.")
     L.append("")
-    L.append("| Symbol | State | n | Median half-spread (bps) | Median depth ±1% (USDT) | p95 half-spread | p05 depth |")
+    L.append("### Normal market conditions (liquidity baselines)")
+    L.append("")
+    L.append("| Symbol | Market period | n | Median half-spread (bps) | Median depth ±1% (USDT) | p95 half-spread | p05 depth |")
     L.append("|---|---|---:|---:|---:|---:|---:|")
     for sym, states in cal.liquidity.items():
         for state, st in states.items():
-            L.append(f"| {sym} | {state} | {st.n:,} | "
+            L.append(f"| {sym} | {_public_state_label(state)} | {st.n:,} | "
                      f"{_n(st.median_half_spread_bps, '{:.3f}')} | "
                      f"{_n(st.median_depth_1pct, '{:,.0f}')} | "
                      f"{_n(st.p95_half_spread_bps, '{:.3f}')} | "
@@ -291,7 +307,7 @@ def render_table(cal: Calibration, min_rth: int = 300) -> str:
     ready = cal.rth_ready
     short = {s: n for s, n in ready.items() if n < min_rth}
     if short:
-        L.append(f"**Status: UNCALIBRATED.** the liquidity check's denominators are RTH_OPEN "
+        L.append(f"**Data coverage: incomplete.** The liquidity comparison uses regular-hours "
                  f"medians and {len(short)} of {len(ready)} symbols are below "
                  f"the {min_rth}-sample minimum "
                  f"({', '.join(f'{s} {n}' for s, n in sorted(short.items()))}). "
@@ -299,32 +315,32 @@ def render_table(cal: Calibration, min_rth: int = 300) -> str:
                  f"quietly compared against a baseline built from too little "
                  f"data.")
     else:
-        L.append(f"**Status: CALIBRATED.** Every symbol has at least "
-                 f"{min_rth} RTH_OPEN samples.")
+        L.append(f"**Data coverage: complete.** Every symbol has at least "
+                 f"{min_rth} regular-hours samples.")
     L.append("")
 
-    L.append("### Basis distribution by state (price-disagreement bands)")
+    L.append("### Token/reference price difference by market period")
     L.append("")
-    L.append("| State | n | p50 \\|basis\\| | p75 | p95 | p99 |")
+    L.append("| Market period | n | p50 absolute difference | p75 | p95 | p99 |")
     L.append("|---|---:|---:|---:|---:|---:|")
     for state, b in cal.basis.items():
-        L.append(f"| {state} | {b.n:,} | {_n(b.p50, '{:.1f}')} | "
+        L.append(f"| {_public_state_label(state)} | {b.n:,} | {_n(b.p50, '{:.1f}')} | "
                  f"{_n(b.p75, '{:.1f}')} | {_n(b.p95, '{:.1f}')} | "
                  f"{_n(b.p99, '{:.1f}')} |")
     L.append("")
-    L.append("Bands are proposed at empirical percentiles — WATCH at p75, "
-             "DEGRADED at p95, BROKEN at p99 — rather than at round numbers.")
+    L.append("The proposed bands use measured percentiles: caution at p75, "
+             "elevated at p95, and blocked at p99, rather than arbitrary round numbers.")
     L.append("")
 
-    L.append("### Walk-cost curve (liquidity sizing)")
+    L.append("### Estimated fill cost")
     L.append("")
     sizes = " | ".join(f"${s:,.0f}" for s in LADDER_USDT)
-    L.append(f"| State | n | {sizes} |")
+    L.append(f"| Market period | n | {sizes} |")
     L.append("|---|---:|" + "---:|" * len(LADDER_USDT))
     for state, row in cal.walk.items():
         n = cal.liquidity.get("NVDABUSDT", {}).get(state, StateStats(0)).n
         cells = " | ".join(_n(row.get(s), "{:.1f}") for s in LADDER_USDT)
-        L.append(f"| {state} | {n:,} | {cells} |")
+        L.append(f"| {_public_state_label(state)} | {n:,} | {cells} |")
     L.append("")
     L.append("Median cost in bps to fill a marketable buy of each size against "
              "the recorded book. A size the book could not fill is counted as "
@@ -337,7 +353,7 @@ def render_table(cal: Calibration, min_rth: int = 300) -> str:
                 MarketState.CLOSED_HOLIDAY)
                if not any(s.value in st for st in cal.liquidity.values())]
     if missing:
-        L.append(f"**Not yet observed:** {', '.join(missing)}. These rows "
+        L.append(f"**Not yet observed:** {', '.join(_public_state_label(x) for x in missing)}. These rows "
                  f"appear once the recorder has lived through them; they are "
                  f"not estimated from the states that were.")
         L.append("")

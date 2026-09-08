@@ -1,25 +1,29 @@
-# Trusted position input and execution activation
+# Trusted account-position input
 
-AFTERBELL does not hold Binance credentials or fetch private account positions.
-The D5/P7 gate accepts only a short-lived snapshot produced by the root-operated
-balance reporter from a Binance Agent OS `spot.getAccount` export.
+AFTERBELL does not hold exchange credentials or fetch private account positions.
+Before allowing new exposure, it accepts only a short-lived, signed report
+produced by the root-operated balance reporter from a supported client's
+read-only account export.
 
-The safe order is:
+The purpose is straightforward: the evaluator must know what the account
+already holds across all supported tokens before it can safely add more. If the
+report is absent, stale, unsigned, or altered, new exposure is refused.
 
-1. Generate a dedicated Ed25519 keypair for the balance reporter. Keep its
-   private key root-only at `/etc/afterbell/position-attestor.key`; do not
-   commit it, reuse a Binance key, or pass a Binance OAuth token to Python.
-2. Install the public key on the VPS as `/etc/afterbell/position.pub`,
-   owned by `root:root` and mode `0644`. Record its fingerprint
-   out of band and verify it with the account holder before trusting snapshots.
-3. Call the read-only Binance Agent OS `spot.getAccount` tool and save an
-   evidence envelope containing the exact result and capture time:
+## Safe setup
+
+1. Generate a dedicated Ed25519 keypair for the balance reporter. Keep the
+   private key root-only at `/etc/afterbell/position-attestor.key`; never commit
+   it, reuse an exchange key, or pass an OAuth token to Python.
+2. Install the public key as `/etc/afterbell/position.pub`, owned by `root:root`
+   and mode `0644`. Verify its fingerprint with the account holder out of band.
+3. Call the supported client's read-only account tool and save an evidence
+   envelope with the exact result and capture time:
 
    ```json
    {"tool":"spot.getAccount","captured_at":"2026-09-06T00:00:00+00:00","result":{"balances":[]}}
    ```
 
-   Invoke the reporter within 120 seconds:
+4. Run the reporter within the configured freshness window:
 
    ```sh
    python -m afterbell.balance_reporter \
@@ -28,8 +32,8 @@ The safe order is:
      --output data/position-snapshot.json
    ```
 
-   It rejects stale or malformed evidence, fetches public Binance prices,
-   includes all five canonical bStock symbols, and emits signed JSON:
+5. The reporter rejects stale or malformed evidence, fetches public prices,
+   includes all five canonical token symbols, and emits signed JSON:
 
    ```json
    {
@@ -41,24 +45,23 @@ The safe order is:
    ```
 
    `positions` contains signed USDT net-position notionals: positive is net
-   long and negative is net short. Every symbol counts toward the gross cap.
-4. Submit a harmless read-only evaluation with the snapshot and confirm the
-   receipt reports `P7` as `VERIFIED`, with the expected snapshot
-   digest, source, age, and gross exposure. A stale, future, unsigned, or
-   incorrectly signed snapshot must be refused.
-5. Confirm `exposure.require_snapshot: true` remains set; do not disable it
-   while the connected account has any exposure. Enable `executor.enabled` only
-   in a deliberate, reviewed policy change;
-   the loader refuses an executable policy without both the requirement and the
-   configured public key.
-6. Restart and verify the guard/MCP services after the policy or external key
-   configuration changes. Keep the first funded test separate and manually
-   approved.
-7. Fund the connected Spot account only after steps 1–6 are complete. Then,
-   and only with fresh account-holder approval, perform the minimum valid D1
-   test through the supported client and retain its order/fill receipt.
+   long and negative is net short. Every supported symbol counts toward the
+   gross exposure limit.
 
-The deployed policy keeps `executor.enabled: false` and is read-only, but now
-sets `exposure.require_snapshot: true`. The dedicated attestor public key is
-installed; every actionable evaluation must carry a fresh reporter snapshot.
-Funding and an order test remain separate, explicitly approved operations.
+6. Submit a harmless read-only evaluation with the report. Confirm the receipt
+   says the account evidence was verified and includes its digest, source, age,
+   and gross exposure. A stale, future, unsigned, or incorrectly signed report
+   must be refused.
+7. Restart and verify the evaluator and MCP services after key or settings
+   changes. Keep any funded test separate and explicitly approved.
+
+## Current deployment
+
+The deployed settings require this account report for actionable evaluations,
+while live submission remains paused. The public dashboard explains a missing
+report as **required account report missing** and shows why the allowed amount
+is zero. Read-only market-state calls do not need private account evidence.
+
+A future unattended publisher still needs approved supported-client
+authentication. Do not move interactive OAuth into Python, a daemon, or this
+repository.

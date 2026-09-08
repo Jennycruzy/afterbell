@@ -7,12 +7,56 @@ import afterbell.dashboard as dashboard
 
 
 def test_operational_console_page_has_afterbell_sections_not_reference_branding():
-    assert "Decision console" in dashboard.PAGE
-    assert "Baseline coverage" in dashboard.PAGE
-    assert "Policy review" in dashboard.PAGE
-    assert "Receipt activity" in dashboard.PAGE
+    assert "Decision explorer" in dashboard.PAGE
+    assert "Data coverage" in dashboard.PAGE
+    assert "Safety limits" in dashboard.PAGE
+    assert "Decision history" in dashboard.PAGE
+    assert "P7" not in dashboard.PAGE
+    assert "HUMAN REVIEW" not in dashboard.PAGE
+    assert "human review" not in dashboard.PAGE.lower()
+    assert "<option>PASS</option>" not in dashboard.PAGE
+    assert "<option>BLOCK</option>" not in dashboard.PAGE
     assert "Deltr" not in dashboard.PAGE
 
+
+
+def test_public_state_translates_machine_labels(monkeypatch):
+    raw = {
+        "guard": {
+            "status": "BLOCK",
+            "binding_constraint": "P7",
+            "gates": {
+                "P1": "PASS", "P2": "WARN", "P3": "REDUCE",
+                "P4": "PASS", "P5": "PASS", "P6": "PASS", "P7": "BLOCK",
+            },
+            "gate_detail": {"P7": "P7 is required; no snapshot supplied"},
+            "market_state": "CLOSED_WEEKEND",
+            "measurements": {"exposure_check": "REQUIRED_BUT_MISSING"},
+        },
+        "policy": {"status": "UNCALIBRATED"},
+        "symbols": [{"baseline_status": "CALIBRATED",
+                     "n_by_state": {"CLOSED_HOLIDAY": 1440}}],
+        "receipts": [{"decision": "BLOCK", "gate_factors": {
+            "P1": 1.0, "P7": 0.0}}],
+        "calibration_markdown": "Status: CALIBRATED; RTH_OPEN",
+        "clock": {"state": "CLOSED_WEEKEND"},
+        "build_status": "WARMING",
+        "backup": {"status": "OK"},
+    }
+
+    public = dashboard._public_state(raw)
+    encoded = json.dumps(public)
+
+    assert public["guard"]["status"] == "Blocked"
+    assert public["guard"]["main_reason"] == "Account exposure"
+    assert public["guard"]["checks"][-1]["name"] == "Account exposure"
+    assert public["policy"]["safety_limits_ready"] is False
+    assert public["symbols"][0]["baseline_ready"] is True
+    assert public["symbols"][0]["holiday_samples"] == 1440
+    assert public["build_status"] == "Loading"
+    assert "P7" not in encoded
+    assert "UNCALIBRATED" not in encoded
+    assert "CLOSED_WEEKEND" not in encoded
 
 def test_dashboard_exposes_generated_evidence_without_recomputing_it(
         monkeypatch, tmp_path):

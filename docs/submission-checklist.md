@@ -1,56 +1,55 @@
 # AFTERBELL submission checklist
 
-Updated **2026-09-08 UTC**. This checklist is deliberately split between
-evidence that exists in the repository, human decisions still required, and
-actions that need an external account or submission destination.
+Updated **8 September 2026 UTC**. This checklist uses the same plain language
+as the public dashboard. It separates evidence already in the repository from
+decisions and actions that still need an owner or an outside destination.
 
 ## Ready in the repository
 
-- [x] Seven-check guard, hash-chained receipts, operator freeze, and
-  credential-free authorization boundary are implemented and tested.
-- [x] Authorization issuance is fail-closed unless `policy.status` is exactly
-  `CALIBRATED`; the shipped policy remains `UNCALIBRATED` and
-  `executor.enabled: false`.
-- [x] The deployed policy requires `exposure.require_snapshot: true`; a
-  missing or stale signed position snapshot blocks P7.
-- [x] Generated calibration evidence includes 38,185 measured books, 34,345
-  reference prints, 781 `RTH_OPEN` samples per symbol, and 1,440
-  `CLOSED_HOLIDAY` samples per symbol.
-- [x] Live backup verification passed at 2026-09-08 08:43 UTC through
-  2026-09-07 using the service-writable rclone config. The job verifies stable
-  data and has a 14-day retention policy; no production archive has yet
-  reached the deletion boundary.
-- [x] The watchdog now treats missing, failed, or older-than-two-hours backup
+- [x] Calendar-aware timing, liquidity, price-agreement, corporate-action,
+  identity, contract, and account-exposure checks are implemented and tested.
+- [x] Every decision and refusal is recorded in a hash-linked receipt history.
+- [x] Authorization is fail-closed while the signed safety settings are still
+  draft; live submission remains off.
+- [x] New exposure requires a recent signed account-position report.
+- [x] The published data report contains 39,365 measured books, 35,520
+  reference prints, 781 regular-hours observations per token, and 1,440
+  holiday observations per token.
+- [x] Backup verification and the 14-day retention policy are deployed; no
+  production archive has reached the deletion boundary yet.
+- [x] The watchdog treats missing, failed, or older-than-two-hours backup
   status as unhealthy.
+- [x] The public dashboard is live, read-only, color-coded, and shows the
+  measurements behind each result.
 
-## Human review still required
+## Owner decisions still needed
 
-- [ ] Review the generated holiday, liquidity, clock, and basis proposals
-  against the policy’s current bands. Do not mark the signed policy calibrated
-  from sample coverage alone.
-- [ ] If the review approves changes, edit `config/policy.yaml` deliberately,
-  record the new policy SHA, restart the source-backed services, and rerun the
-  full tests and live read-only checks. Keep execution disabled until that
-  decision is explicit.
-- [ ] Continue the corrected counterparty sample through an even
-  regular-hours/closure comparison, then regenerate `docs/counterparty.md`.
+- [ ] Compare the proposed timing, liquidity, price-difference, and holiday
+  limits with the measured report. Record whether each limit is approved or
+  changed.
+- [ ] If limits change, update the signed settings deliberately, record the new
+  configuration fingerprint, restart the source-backed services, rerun the full
+  tests, and repeat read-only live checks.
+- [ ] Keep live submission paused until that decision is explicit.
+- [ ] Continue the corrected counterparty sample through an evenly covered
+  regular-hours and closure comparison, then regenerate its report.
 
-## External submission blockers
+## Outside submission work
 
-- [ ] D7 Skills Hub PR: open the PR in the required destination; report it as
-  opened, not merged, until the destination confirms otherwise.
-- [ ] D11 video and submission: record the read-only guard, P7 refusal, public
-  dashboard/MCP, verified backup status, and the existing D1 acceptance record;
-  submit the video and links through the required portal.
-- [ ] Unattended signed snapshots: obtain a supported-client authentication
-  path and implement a root-operated publisher; never move the interactive
-  Binance OAuth token into Python or a daemon.
-- [ ] D6 corporate-action lookahead remains a documented limitation: Binance
-  current processing status is checked, but advance notice is not guaranteed.
+- [ ] Open the Skills Hub pull request in the required destination and report it
+  as opened until the destination confirms its status.
+- [ ] Record the read-only demo, public dashboard, public MCP surface, backup
+  evidence, and the existing minimum-size acceptance record for the video and
+  submission portal.
+- [ ] Obtain an approved supported-client authentication path for unattended
+  signed account-position reports. Never move interactive OAuth into Python or
+  a daemon.
+- [ ] Explain that the current venue-status check does not guarantee advance
+  notice of every corporate action.
 
-## Safe final gate
+## Safe final step before any live order
 
-Before any future live execution decision, verify the policy status, executor
-flag, current policy SHA, fresh signed position snapshot, and explicit human
-approval. A generated calibration report marked `CALIBRATED` is not by itself
-permission to change the signed policy.
+Confirm the signed settings, execution switch, configuration fingerprint,
+current signed account-position report, fresh market data, and explicit owner
+approval. Complete data coverage by itself is not permission to activate live
+submission.

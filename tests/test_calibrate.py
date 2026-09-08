@@ -109,7 +109,7 @@ def test_walk_curve_covers_every_ladder_size(tmp_path):
 def test_table_states_uncalibrated_when_samples_are_short(tmp_path):
     raw = write_dataset(tmp_path, "2026-09-02", 10, RTH)
     table = render_table(run(raw), min_rth=300)
-    assert "UNCALIBRATED" in table
+    assert "Data coverage: incomplete" in table
     assert "300-sample minimum" in table
 
 
@@ -117,13 +117,13 @@ def test_table_names_states_never_observed(tmp_path):
     raw = write_dataset(tmp_path, "2026-09-02", 10, RTH)
     table = render_table(run(raw))
     assert "Not yet observed" in table
-    assert MarketState.CLOSED_WEEKEND.value in table
+    assert "Weekend closure" in table
 
 
 def test_table_reports_calibrated_once_samples_suffice(tmp_path):
     raw = write_dataset(tmp_path, "2026-09-02", 320, RTH)
     table = render_table(run(raw), min_rth=300)
-    assert "**Status: CALIBRATED.**" in table
+    assert "**Data coverage: complete.**" in table
 
 
 def test_report_can_state_and_apply_a_rolling_window(tmp_path):

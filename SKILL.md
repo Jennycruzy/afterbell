@@ -1,46 +1,39 @@
 ---
 name: afterbell-calendar-risk
 description: >-
-  Calendar-aware risk boundary for Binance bStocks (tokenized US equities).
-  Use before placing any bStock order to size it against how long the
-  reference market has been shut. Returns PASS, WARN, REDUCE or BLOCK with a
-  permitted notional and a signed receipt. It never places an order.
+  Calendar-aware safety layer for Binance bStocks (tokenized U.S. equities).
+  Use before a bStock order to compare token-market conditions with the
+  underlying market and return the largest defensible amount. It never places
+  an order.
 license: MIT
 ---
 
-# AFTERBELL — a calendar-aware risk boundary for bStocks
+# AFTERBELL — market protection for tokenized equities
 
-## What this is for
+## The idea
 
-bStocks trade 24/7. The market that prices them is open about 32.5 hours a
-week. Between Friday's closing bell and Tuesday's open over a holiday weekend
-there are roughly **89 hours** during which a tokenized share keeps trading
-against a reference price that stopped updating.
+bStocks can trade around the clock. The U.S. market that supplies their
+reference price is open for only part of the week. AFTERBELL measures that gap,
+checks the live token book, and limits new exposure when the independent price
+is old or the market is unusually difficult to trade.
 
-Most agent risk checks ask *how big is this order*. This one asks *how long has
-it been since anyone independently priced this thing*, and sizes accordingly.
-
-Use this skill before any bStock order. It reads the order, measures the
-market, and returns the largest notional it is willing to permit. It cannot
-place, amend or cancel an order, and it holds no exchange credential.
+Use this skill before a bStock order. It returns the largest amount the system
+is willing to permit and a short explanation. It cannot place, amend, or cancel
+an order, and it holds no exchange credential.
 
 ## When to use it
 
-- Before submitting any buy or sell of a bStock pair (`NVDABUSDT`, `TSLABUSDT`,
-  `MUBUSDT`, `CRCLBUSDT`, `SNDKBUSDT`).
-- When a user request names a company rather than an instrument — "buy Nvidia"
-  is a category error this skill resolves explicitly, because what is
-  purchasable is a certificate issued by a Binance affiliate, not the share.
-- When a token is delivered on-chain and a contract address needs checking
-  against the canonical registry.
+- Before buying or selling one of the five supported pairs:
+  `NVDABUSDT`, `TSLABUSDT`, `MUBUSDT`, `CRCLBUSDT`, or `SNDKBUSDT`.
+- When a request names a company rather than an exact instrument. “Buy Nvidia”
+  needs an explicit resolution to the token certificate, issuer, network, and
+  underlying stock.
+- When a contract address or current account exposure needs checking.
 
-Do **not** use it to decide *whether* to trade or *what* to trade. It expresses
-no view on price and produces no signal. It only constrains an order that
-something else already proposed.
+Do not use it to choose an investment or predict a price. It only constrains an
+order proposed by something else.
 
 ## Adoption
-
-Four lines around an existing agent, with the trading logic untouched:
 
 ```python
 from afterbell import Guard, OrderRequest, Side
@@ -52,138 +45,83 @@ if decision.allowed_notional > 0:
     mcp.place_order(order.at(decision.allowed_notional))
 ```
 
-`order.at()` refuses to resize upward. The guard never permits more than was
-requested, and that path is not allowed to become the exception.
+`order.at()` refuses to increase the requested amount. From a shell:
 
-From a shell:
-
-```
-python -m afterbell.engine --symbol NVDABUSDT --notional 5000 --query "buy Nvidia"
+```bash
+python -m afterbell.engine \
+  --symbol NVDABUSDT --notional 5000 --query "buy Nvidia"
 ```
 
-## What it returns
+## What a result means
 
-```
-  TOKEN MARKET  OPEN            REFERENCE MARKET  CLOSED_WEEKEND
-                                REFERENCE_AGE     16:00:00
+```text
+Reference market: weekend closure · reference age 16h
+Market timing: smaller size · independent price will not refresh for 73.5h
+Liquidity: blocked · regular-hours comparison is not available yet
+Price agreement: clear · token is 3 bps from the reference
+Corporate actions: caution · current venue status is clear; future notice is not guaranteed
+Instrument identity: clear · exact certificate and underlying resolved
+Contract address: clear · address matches the checked registry
+Account exposure: blocked · recent signed account report was not supplied
 
-    Market closure  REDUCE  f=0.060  reference market CLOSED_WEEKEND; 73.5h until the next regular print (extended closure)
-    Liquidity       BLOCK   f=0.000  no calibrated RTH baseline for this symbol (0 samples, 300 required)
-    Price agreement PASS    f=1.000  token -3bps against a reference 16:00:00 old [NOMINAL]
-    Corporate action WARN    f=1.000  Binance processing status TRADING verified; advance notice is not guaranteed
-    Instrument ID    PASS    f=1.000  NVDAB resolved to NVDA via BTech Holdings Limited
-    Contract check   PASS    f=1.000  venue-internal spot pair; canonical registry applies
-    Aggregate exposure BLOCK f=0.000  no signed position snapshot supplied; P7 is required by the current policy
-
-  DECISION  BLOCK     requested 5,000 -> allowed 0 USDT
-  BINDING   market closure, liquidity, aggregate exposure
+Decision: blocked · requested 5,000 → allowed 0 USDT
 ```
 
-This is the output shape for a Saturday evaluation before the RTH baseline has
-reached its required sample count and without the signed position snapshot now
-required by the deployed policy. The liquidity and P7 checks both fail closed.
-Note that the two clock numbers are
-different measurements and are not interchangeable: `REFERENCE_AGE` 16:00:00 is
-how stale the last print already is, while 73.5h is how long until the next
-one. The market-closure check takes the worse of them. Here the darkness *ahead* binds, because Labor
-Day falls on the Monday.
+The amount is the smallest safe ceiling from those independent observations.
+The result is recorded in the append-only decision history.
 
-`decision.allowed_notional` is the number to act on. `decision.rationale` is the
-text of record. Every evaluation — including every refusal — appends a
-hash-chained receipt carrying the policy checksum that produced it.
+## Why an account report can stop an order
 
-## The seven protections
+Before adding exposure, AFTERBELL needs a recent, signed view of what the
+account already holds across the supported symbols. If that report is missing,
+stale, unsigned, or altered, the system will not pretend the account is empty.
+It refuses new exposure instead.
 
-| | Asks |
-|---|---|
-| **Market closure** | How long has the reference market been shut, and how long until it reopens? |
-| **Liquidity** | How does this book compare to its *own* regular-hours median spread and depth? |
-| **Price agreement** | Do the token and its reference disagree, and how old is the reference? |
-| **Corporate-action status** | Does Binance report a processing restriction or corporate-action message? |
-| **Instrument identity** | What is this, exactly — issuer, instrument class, network, underlying? |
-| **Contract verification** | Is this contract address the canonical one? |
-| **Aggregate exposure** | Does a fresh, trusted account snapshot leave room under the gross ceiling? |
+The report carries signed USDT notionals and a verification signature. It does
+not carry an exchange login, and AFTERBELL stores only its identity and result,
+not the raw account export.
 
-Factors combine by `min()`, never by product. Multiplying them would invent a
-precision the measurements do not have, and would let three merely-cautious
-signals compound into a block no single measurement supports.
+## Why live permission may be paused
 
-## What it cannot do
+Market data can be complete while safety settings are still draft. The generated
+report now has enough regular-hours observations for every supported token. The
+signed settings file still needs an explicit owner decision: compare the
+proposed limits with the measured distributions, then approve or revise them.
+Until that decision is recorded, the authorization path stays paused. This is a
+conscious safety hold, not a missing-data failure.
 
-- **The guard cannot place, amend or cancel an order.** Its result space
-  is PASS, WARN, REDUCE, BLOCK plus a permitted notional never larger than the
-  request. The action space is provably risk-reducing, which is what makes it
-  safe to grant autonomy to. The guard signs an exact, short-lived authorization only. Python never holds
-  Binance OAuth or calls Binance's authenticated order endpoint; the supported
-  Codex MCP client is the sole submitter of the fixed arguments.
-- **It cannot be talked out of a limit.** Thresholds live in a checksummed file
-  on disk, loaded at startup. There is no argument, no keyword and no request
-  field that raises one. This is tested, not asserted: `python -m
-  afterbell.adversary` runs 35 attacks — instruction injection, claimed
-  authority, urgency, fabricated market data, credential extraction, counterfeit
-  contracts, resolution evasion — against a single market snapshot, and the
-  invariant is that none of them ever raises permitted size above the control.
-- **It cannot invent a missing input.** A reference price that will not fetch, a
-  book that will not measure, an unrecognised pair status — each halts the
-  affected path and blocks. A missing reference is never treated as agreement.
-- **It cannot fire Binance's Emergency Stop**, which is a manual web-UI action.
-  It refuses, sizes down and notifies at its own layer only.
-- **It does no arithmetic with a language model.** Every number is computed from
-  measured inputs. A model may narrate a receipt; it cannot change one.
+## What it protects against
 
-## Configuration
+- stale or missing underlying-market prices;
+- thin books and unusually expensive fills;
+- large token/reference price differences;
+- reported venue restrictions or corporate-action messages;
+- ambiguous instruments and counterfeit contract addresses;
+- unknown aggregate account exposure; and
+- prompt injection, urgency, authority claims, or fabricated measurements.
 
-`config/policy.yaml` holds every threshold and is checksummed at load; its
-SHA-256 travels into every receipt so a reader can tell which rules produced a
-given decision. The loader refuses to start on a missing market state or a
-sizing factor above 1.0.
+All measurements and limits are computed by ordinary deterministic code. A
+language model may narrate a recorded result, but it cannot supply a number or
+change the result.
 
-Thresholds are measured, not invented — `.venv/bin/python -m afterbell.calibrate`
-publishes the table with a sample count beside every number, and reports
-`UNCALIBRATED` rather than printing a statistic it lacks the samples for.
-The signed policy currently remains `status: UNCALIBRATED` pending manual
-threshold review; the CLI, planner, and authorization issuer refuse to create
-an actionable authorization until the status is explicitly `CALIBRATED`.
+## Boundaries and evidence
 
-Yahoo is the default reference-price provider and needs no credential. Alpaca
-can be selected for reference prices with `REFERENCE_PROVIDER=alpaca`, but it
-does **not** power corporate-action protection. **Corporate-action protection is
-Binance-native:** it checks public bStocks processing status and reason messages,
-blocks a reported restriction, and marks a clear current status as partial
-because Binance does not guarantee advance notice. Alpaca is never silently
-substituted for Yahoo, and the recorder and safety evaluator hold no Binance or
-Alpaca credential.
+The public dashboard at <https://afterbell.site> is read-only. The recorder,
+dashboard, and evaluator hold no exchange credential. The shipped execution
+setting is paused. A supported client would have to receive an exact,
+short-lived authorization before any separately approved submission path could
+be used.
 
-The D5/P7 aggregate exposure check uses signed USDT net-position notionals from
-a supported client. Positive values are long, negative values are short, and
-all symbols count toward the gross ceiling. Snapshots are Ed25519-verified and
-must be no older than `snapshot_max_age_s`; the receipt stores only the snapshot
-digest and source, not raw positions. The deployed policy sets
-`exposure.require_snapshot: true`, so an actionable evaluation without a fresh
-snapshot is fail-closed even while `executor.enabled: false`. Read-only
-market-state calls do not need a position snapshot. A future publisher still
-needs a supported unattended authentication path; the activation runbook is
-[`docs/position-input.md`](docs/position-input.md).
+The data report, safety-test report, acceptance record, and signed account-input
+runbook are linked from the dashboard and repository:
 
-The public MCP surface has a separate resource bound from the safety policy.
-The deployed implementation caps batches at 20 messages, charges request work
-against a 30-unit per-client/60-second budget, and persists a 1,000
-evaluate_order-calls-per-UTC-day quota in data/mcp-quota.json. Quota rejections
-return HTTP 429 with Retry-After and never reach the guard. Nginx applies the
-source-address limiter before the application.
+- [`docs/calibration.md`](docs/calibration.md)
+- [`docs/evaluation.md`](docs/evaluation.md)
+- [`docs/live-acceptance.md`](docs/live-acceptance.md)
+- [`docs/position-input.md`](docs/position-input.md)
 
-## Status and honesty
+Tokenized securities are certificates and do not imply direct ownership of the
+underlying share. This skill is a technical control, not advice or a
+recommendation.
 
-- Contract addresses come from a checked-in registry hashed at load.
-- The instrument registry covers the five launch bStocks only.
-- Binance's public bStocks status path is live-checked; an unsupported public
-  token audit is recorded as registry-only rather than as a clean audit.
-- **Corporate-action protection is a Binance-native current-status check, not an Alpaca lookahead.** A reported processing restriction blocks a new entry. Because Binance does not guarantee advance notice, a clear status remains explicit partial protection rather than a future-event clearance.
-- Adversarial payloads used to test this skill are synthetic, self-contained,
-  and never published anywhere a third party's agent could encounter them.
-- bStocks are **Certificates representing Financial Instruments** (para 92,
-  Sch 1 FSMR) and confer no direct ownership of the underlying share. This
-  skill never implies otherwise, and never offers advice, a recommendation or a
-  solicitation.
-
-Source, tests and the full write-up: <https://github.com/Jennycruzy/afterbell>
+Source and tests: <https://github.com/Jennycruzy/afterbell>
