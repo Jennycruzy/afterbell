@@ -27,12 +27,15 @@ from afterbell.measure import (Book, Side, basis_bps, depth_within,
                                half_spread_bps, walk_cost_bps)
 from afterbell.measure import BookProblem
 from afterbell.policy import load as load_policy
+from afterbell.dashboard_page import PAGE as JUDGE_PAGE
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
 RECEIPTS = ROOT / "data" / "receipts.jsonl"
 GUARD_STATE = ROOT / "data" / "guard_state.json"
 CALIBRATION = ROOT / "docs" / "calibration.md"
+EVALUATION = ROOT / "docs" / "evaluation.md"
+BACKUP_STATUS = ROOT / "data" / "backup_status.json"
 
 STATE_CACHE_TTL_S = 300.0
 _cache: dict = {"ts": 0.0, "data": None, "building": False}
@@ -154,6 +157,40 @@ def _calibration_text() -> str:
         return f"Calibration unavailable: {type(exc).__name__}: {exc}"
 
 
+def _evaluation_metrics() -> dict[str, str]:
+    """Read the generated evidence table without recomputing its claims."""
+    if not EVALUATION.exists():
+        return {}
+    try:
+        lines = EVALUATION.read_text().splitlines()
+    except OSError:
+        return {}
+    metrics: dict[str, str] = {}
+    for line in lines:
+        if not line.startswith("|"):
+            continue
+        cells = [
+            cell.strip().replace("**", "")
+            for cell in line.split("|")[1:-1]
+        ]
+        if len(cells) != 2 or cells[0] in {"Metric", "---"}:
+            continue
+        metrics[cells[0]] = cells[1]
+    return metrics
+
+
+def _backup_state() -> dict:
+    """Expose only the non-secret backup status receipt."""
+    unknown = {"status": "UNKNOWN", "ts": None, "covered_through": None}
+    if not BACKUP_STATUS.exists():
+        return unknown
+    try:
+        state = json.loads(BACKUP_STATUS.read_text())
+    except (OSError, json.JSONDecodeError):
+        return unknown
+    return state if isinstance(state, dict) else unknown
+
+
 def _receipts(limit: int = 40) -> list[dict]:
     if not RECEIPTS.exists():
         return []
@@ -230,6 +267,7 @@ def build_state() -> dict:
 
     return {
         "generated_at": now.isoformat(),
+        "build_status": "READY",
         "reference_age_s": ref_age_s,
         "reference_age": format_age(ref_age_s),
         "reference_age_source": ref_source,
@@ -244,12 +282,22 @@ def build_state() -> dict:
         },
         "policy": {"sha256": pol.sha256, "status": pol.status,
                    "base_notional": pol.base_notional,
-                   "min_rth_samples": pol.min_rth_samples},
+                   "min_rth_samples": pol.min_rth_samples,
+                   "executor_enabled": pol.executor_enabled,
+                   "require_snapshot": pol.exposure_requires_snapshot,
+                   "max_gross_usdt": pol.exposure_max_gross_usdt},
         "registry_sha256": registry_sha256(),
         "ledger_head": head_of(RECEIPTS),
         "guard": _load_guard_state(),
         "history": _history("NVDABUSDT", "NVDA"),
         "calibration_markdown": _calibration_text(),
+        "evaluation": _evaluation_metrics(),
+        "backup": _backup_state(),
+        "acceptance": {
+            "status": "FILLED", "order_id": "54422149",
+            "quantity": "0.021 NVDAB", "notional": "4.86192000 USDT",
+            "boundary": "Codex MCP OAuth; no venue credential in Python",
+        },
         "symbols": symbols,
         "receipts": _receipts(),
     }
@@ -266,6 +314,9 @@ def _starting_state() -> dict:
             "status": pol.status,
             "base_notional": pol.base_notional,
             "min_rth_samples": pol.min_rth_samples,
+            "executor_enabled": pol.executor_enabled,
+            "require_snapshot": pol.exposure_requires_snapshot,
+            "max_gross_usdt": pol.exposure_max_gross_usdt,
         }
     except Exception as exc:
         policy = {
@@ -298,6 +349,13 @@ def _starting_state() -> dict:
         "guard": _load_guard_state(),
         "history": [],
         "calibration_markdown": note,
+        "evaluation": _evaluation_metrics(),
+        "backup": _backup_state(),
+        "acceptance": {
+            "status": "RECORDED", "order_id": "54422149",
+            "quantity": "0.021 NVDAB", "notional": "4.86192000 USDT",
+            "boundary": "Codex MCP OAuth; no venue credential in Python",
+        },
         "symbols": [],
         "receipts": [],
     }
@@ -339,7 +397,7 @@ def cached_state(max_age_s: float = STATE_CACHE_TTL_S) -> dict:
     return data if data is not None else _starting_state()
 
 
-PAGE = """<!doctype html>
+LEGACY_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AFTERBELL</title>
@@ -486,6 +544,9 @@ tick();setInterval(tick,10000);
 setInterval(()=>{const el=document.getElementById('age');
  if(el&&refAge!==null)el.innerHTML=age(refAge+(Date.now()-lastSync)/1000);},1000);
 </script></body></html>"""
+
+
+PAGE = JUDGE_PAGE
 
 
 class Handler(BaseHTTPRequestHandler):

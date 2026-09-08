@@ -42,8 +42,6 @@ actions that need an external account or submission destination.
 - [ ] D11 video and submission: record the read-only guard, P7 refusal, public
   dashboard/MCP, verified backup status, and the existing D1 acceptance record;
   submit the video and links through the required portal.
-- [ ] Square publishing: obtain the Creator Center publishing credential and
-  publish only sanitized blocks, digests, and public links.
 - [ ] Unattended signed snapshots: obtain a supported-client authentication
   path and implement a root-operated publisher; never move the interactive
   Binance OAuth token into Python or a daemon.

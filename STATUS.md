@@ -145,9 +145,8 @@ Track the submission handoff in [`docs/submission-checklist.md`](docs/submission
 3. **Unattended signed snapshots:** a supported-client authentication path is still needed for safe, unattended position-snapshot publishing.
 4. **D7 Skills Hub PR:** not opened.
 5. **D11 video and submission mechanics:** not started.
-6. **D8 Square publishing:** awaits Creator Center API key.
-7. **D9 counterparty comparison:** continue the corrected post-fix sample through an even regular-hours/closure comparison.
-8. **D6 corporate-action lookahead:** Binance current processing status is authoritative but does not guarantee advance notice; Alpaca reference validation is configured, not an independent corporate-action source.
+6. **D9 counterparty comparison:** continue the corrected post-fix sample through an even regular-hours/closure comparison.
+7. **D6 corporate-action lookahead:** Binance current processing status is authoritative but does not guarantee advance notice; Alpaca reference validation is configured, not an independent corporate-action source.
 
 ## Known limitations
 

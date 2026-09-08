@@ -51,5 +51,5 @@ manually gated and require a fresh signed snapshot and explicit approval.
   session after the recorder fix.
 - Review the captured Labor Day `CLOSED_HOLIDAY` sample and the generated proposals;
   do not promote thresholds automatically.
-- Square publishing and unattended snapshot publishing still require their
-  respective external credentials or automation authority.
+- Unattended snapshot publishing still requires an external authentication
+  path and automation authority.
