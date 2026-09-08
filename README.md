@@ -22,7 +22,7 @@ Built for the **Binance Agent OS Mini Hackathon, Track A**.
 | | |
 |---|---|
 | **Live dashboard** | <https://afterbell.site> — running now, updates every minute |
-| **Public MCP endpoint** | `https://afterbell.site/mcp` — three read-only tools, no key needed |
+| **Public MCP endpoint** | `https://afterbell.site/mcp` — three non-executing tools, no key needed |
 | **How it fits together** | [Architecture](#architecture) |
 | **Connect an agent** | [Connect your AI agent](#connect-your-ai-agent) |
 | **Measured baselines** | [`docs/calibration.md`](docs/calibration.md) |
@@ -67,12 +67,20 @@ agents and one exchange, each owning exactly one thing:
     Separately, when execution is enabled, AFTERBELL issues a signed
     authorization bound to one specific proposal, which a supported
     client redeems. That is the governed handoff below, not a value
-    these read-only tools return.
+    these public tools return.
 ```
 
 The agent owns intent. AFTERBELL owns the deterministic limit. Agent OS owns
 authenticated execution. No party does another's job, and the limit is decided
 by ordinary code rather than by a model.
+
+There are two integration strengths, and the distinction matters. In the
+public advisory flow, a calling agent reads the ceiling and must honour it.
+In the governed flow demonstrated by the recorded live fill, a supported
+client redeems a short-lived authorization bound to one proposal; that path
+cannot produce an order larger than AFTERBELL permitted. AFTERBELL does not
+cryptographically restrict unrelated trading tools held by a third party.
+
 
 Inside AFTERBELL, one request travels a straight line:
 
@@ -100,7 +108,7 @@ dashboard shows the current order limit and cannot place an order.
 AFTERBELL is a peer on the protocol, not an adapter for one product. Any
 MCP-capable agent can use it — there is no SDK, no plugin, and no client this
 side requires. Pair it with Binance Agent OS in the same client, ask AFTERBELL
-what size is defensible, and restrict the Agent OS order to the ceiling that
+what size is defensible, and have the agent restrict its order to the ceiling that
 comes back. Whatever a client needs in order to talk to Binance is Binance's
 requirement, not AFTERBELL's; nothing here narrows which agent you bring. That last step is the agent's to honour: AFTERBELL
 governs its own handoff, not somebody else's credential.
@@ -441,7 +449,25 @@ The public MCP endpoint provides `evaluate_order`, `get_market_state` and
 - [`docs/evaluation.md`](docs/evaluation.md) — safety-test definitions and
   generated results.
 - [`docs/live-acceptance.md`](docs/live-acceptance.md) — the one recorded,
+
+For the editable package install and the same quality gates used in CI:
+
+```bash
+.venv/bin/pip install -e '.[test]'
+.venv/bin/ruff check afterbell scripts tests
+.venv/bin/pytest --cov=afterbell
+```
   recorded minimum-size acceptance event.
+
+Production hosts run the same checks each day through
+`afterbell-quality.timer`; the latest machine-readable result is written to
+
+Production hosts run the same checks daily through `afterbell-quality.timer`.
+The latest machine-readable result is written to `data/quality_status.json`.
+This verification is host-local and does not depend on GitHub Actions or
+repository billing.
+`data/quality_status.json`. This is deliberately host-local and does not depend
+on GitHub Actions or repository billing.
 - [`docs/position-input.md`](docs/position-input.md) — how a supported client
   supplies a signed account-position report without sharing credentials.
 - [`docs/submission-checklist.md`](docs/submission-checklist.md) — evidence that

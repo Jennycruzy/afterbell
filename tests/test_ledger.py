@@ -116,3 +116,15 @@ def test_empty_ledger_starts_at_genesis(tmp_path):
     led = Ledger(tmp_path / "l.jsonl")
     assert led.head == GENESIS and led.seq == 0
     assert head_of(led.path) is None
+
+
+def test_append_does_not_full_verify_chain_again(tmp_path, monkeypatch):
+    import afterbell.ledger as ledger_module
+    path = tmp_path / "l.jsonl"
+    led = Ledger(path)
+    led.append({"decision": "BLOCK"})
+    monkeypatch.setattr(
+        ledger_module, "verify",
+        lambda unused: pytest.fail("append performed a full ledger scan"))
+    rec = led.append({"decision": "WARN"})
+    assert rec["seq"] == 2 and head_of(path) == rec["hash"]

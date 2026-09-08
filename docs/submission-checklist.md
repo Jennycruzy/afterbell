@@ -35,12 +35,16 @@ actions that still need an outside destination.
   opened rather than accepted until that destination says otherwise.
 - [ ] Record the public dashboard, public MCP surface, backup
   evidence, and the existing minimum-size acceptance record for the video and
-  submission portal.
-- [ ] Provide a supported-client authentication path for unattended
-  signed account-position reports. Never move interactive OAuth into Python or
-  a daemon.
-- [ ] Explain that the current venue-status check does not guarantee advance
+  submission portal. Follow [`submission-runbook.md`](submission-runbook.md).
+- [x] Keep unattended account authentication outside this package. A supported
+  client can sign a fresh position report as documented in `position-input.md`;
+  anonymous calls without that evidence deliberately fail closed. Moving
+  interactive OAuth into Python would violate the credential boundary.
+- [x] Explain that the current venue-status check does not guarantee advance
   notice of every corporate action.
+
+The remaining video/portal checkbox requires the external submission
+destination; it is not an unfinished code path.
 
 ## Safe final step before any live order
 

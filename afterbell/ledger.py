@@ -81,24 +81,39 @@ class Ledger:
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
-    def _resume(self) -> tuple[int, str]:
-        """Pick up from the existing chain, or start a new one."""
+    def _last_record(self) -> dict[str, Any] | None:
+        """Read the final complete record without scanning the whole ledger."""
         if not self.path.exists() or self.path.stat().st_size == 0:
+            return None
+        with self.path.open("rb") as fh:
+            pos = fh.seek(0, os.SEEK_END)
+            chunks: list[bytes] = []
+            while pos > 0:
+                size = min(8192, pos)
+                pos -= size
+                fh.seek(pos)
+                chunks.append(fh.read(size))
+                lines = b"".join(reversed(chunks)).splitlines()
+                if len(lines) >= 2 or pos == 0:
+                    nonempty = [line for line in lines if line.strip()]
+                    if nonempty:
+                        return json.loads(nonempty[-1])
+            return None
+
+    def _resume(self, *, verify_chain: bool = True) -> tuple[int, str]:
+        """Pick up the head; fully verify on open, then tail-check per append."""
+        rec = self._last_record()
+        if rec is None:
             return 0, GENESIS
-        last = None
-        with self.path.open() as fh:
-            for line in fh:
-                if line.strip():
-                    last = line
-        if last is None:
-            return 0, GENESIS
-        errors = verify(self.path)
-        if errors:
-            first = errors[0]
-            raise RuntimeError(
-                f"receipt ledger verification failed at line {first.line_no}: "
-                f"{first.reason}")
-        rec = json.loads(last)
+        if verify_chain:
+            errors = verify(self.path)
+            if errors:
+                first = errors[0]
+                raise RuntimeError(
+                    f"receipt ledger verification failed at line {first.line_no}: "
+                    f"{first.reason}")
+        elif compute_hash(str(rec.get("prev_hash", "")), rec) != rec.get(_HASH_FIELD):
+            raise RuntimeError("receipt ledger tail hash is invalid")
         return int(rec["seq"]), str(rec[_HASH_FIELD])
 
     @property
@@ -122,7 +137,7 @@ class Ledger:
             # object was constructed. Refresh *inside* the exclusive lock;
             # correctness is more important than avoiding this small scan in
             # a six-day evidence ledger.
-            self._seq, self._head = self._resume()
+            self._seq, self._head = self._resume(verify_chain=False)
             rec = dict(record)
             rec["seq"] = self._seq + 1
             rec.setdefault("ts", datetime.now(timezone.utc)
@@ -147,7 +162,7 @@ class Ledger:
         clients from passing a check-then-place race with one authorization.
         """
         with self._exclusive_lock():
-            self._seq, self._head = self._resume()
+            self._seq, self._head = self._resume(verify_chain=False)
             for existing in self:
                 if (existing.get("kind") in kinds
                         and existing.get(field) == value):
@@ -227,9 +242,7 @@ def head_of(path: str | Path) -> str | None:
     path = Path(path)
     if not path.exists():
         return None
-    last = None
-    with path.open(encoding="utf-8") as fh:
-        for line in fh:
-            if line.strip():
-                last = line
-    return json.loads(last)[_HASH_FIELD] if last else None
+    ledger = object.__new__(Ledger)
+    ledger.path = path
+    last = ledger._last_record()
+    return str(last[_HASH_FIELD]) if last else None

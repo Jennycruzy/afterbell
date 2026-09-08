@@ -39,7 +39,7 @@ from typing import Iterator
 from afterbell.baselines import (
     RAW, _cutoff, _pct, _record_ts, iter_records, to_sample,
 )
-from afterbell.clock import MarketState, evaluate as clock_at
+from afterbell.clock import MarketState
 from afterbell.instruments import REGISTRY
 from afterbell.measure import Book, BookProblem, Side, basis_bps, walk_cost_bps
 

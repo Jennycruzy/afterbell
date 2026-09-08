@@ -19,7 +19,7 @@ from pathlib import Path
 
 from afterbell import baselines as bl
 from afterbell.clock import (
-    MarketState, evaluate as clock_at, format_age, last_rth_close,
+    MarketState, evaluate as clock_at, format_age,
 )
 from afterbell.instruments import REGISTRY, TOKEN_SYMBOLS, registry_sha256
 from afterbell.guard import CHECK_NAMES
@@ -626,6 +626,25 @@ def cached_state(max_age_s: float = STATE_CACHE_TTL_S) -> dict:
     return dict(data, guard=_load_guard_state(), receipts=_receipts(),
                 backup=_backup_state(), ledger_head=head_of(RECEIPTS))
 
+def live_status() -> dict:
+    """Small frequently-polled state; archive evidence stays on /api/state."""
+    raw = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "status_generated_at": datetime.now(timezone.utc).isoformat(),
+        "build_status": "READY",
+        "guard": _load_guard_state(),
+        "backup": _backup_state(),
+        "ledger_head": head_of(RECEIPTS),
+    }
+    public = _public_state(raw)
+    return {
+        "status_generated_at": raw["status_generated_at"],
+        "guard": public["guard"],
+        "backup": public["backup"],
+        "ledger_head": public["ledger_head"],
+    }
+
+
 
 PAGE = CONSOLE_PAGE
 
@@ -651,7 +670,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         try:
-            if self.path.startswith("/api/state"):
+            if self.path == "/api/status":
+                body = json.dumps(live_status(), default=str).encode()
+                return self._send(200, body, "application/json")
+            if self.path == "/api/state":
                 body = json.dumps(_public_state(cached_state()), default=str).encode()
                 return self._send(200, body, "application/json")
             if self.path in ("/", "/index.html"):

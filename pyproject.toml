@@ -14,10 +14,11 @@ dependencies = [
   "pydantic>=2.7",
   "pyyaml>=6.0",
   "alpaca-py>=0.30",
+  "cryptography>=42",
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0"]
+test = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
 
 [tool.setuptools.packages.find]
 include = ["afterbell*"]
@@ -28,3 +29,19 @@ pythonpath = ["."]
 markers = [
   "integration: read-only calls to live public market-data endpoints",
 ]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["F"]
+ignore = ["E501"]
+
+[tool.coverage.run]
+branch = true
+source = ["afterbell"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true

@@ -171,7 +171,7 @@ def render_panel(res: Resolution, reference_state: str, reference_age: str,
     does not calculate, and it never sources a number of its own (Law 5).
     """
     if not res.resolved or res.instrument is None:
-        lines = [f"UNRESOLVED INSTRUMENT", "",
+        lines = ["UNRESOLVED INSTRUMENT", "",
                  f"  Request           {res.query!r}",
                  f"  Status            {res.status.value}",
                  f"  Note              {res.note}"]
@@ -209,7 +209,7 @@ def render_panel(res: Resolution, reference_state: str, reference_age: str,
         elif contract.audit_status:
             lines.append(f"  Token audit       {contract.audit_status}")
     lines += [
-        f"  Token market      OPEN (24/7)",
+        "  Token market      OPEN (24/7)",
         f"  Reference market  {reference_state} - {reference_age}",
         f"  Basis             {basis_txt}",
     ]

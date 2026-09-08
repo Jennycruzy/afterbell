@@ -34,6 +34,20 @@ def post(address: tuple[str, int], body: object) -> tuple[int, dict[str, str], o
         connection.close()
 
 
+def options(address: tuple[str, int]) -> tuple[int, dict[str, str]]:
+    connection = http.client.HTTPConnection(*address, timeout=10)
+    try:
+        connection.request("OPTIONS", "/", headers={
+            "Origin": "https://example.test",
+            "Access-Control-Request-Method": "POST",
+        })
+        response = connection.getresponse()
+        response.read()
+        return response.status, dict(response.getheaders())
+    finally:
+        connection.close()
+
+
 @pytest.fixture
 def http_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     previous = mcp._QUOTA
@@ -77,6 +91,15 @@ def test_non_object_batch_item_is_an_invalid_request(http_server):
     assert status == 200
     assert result[0]["result"] == {}
     assert result[1]["error"]["code"] == mcp.INVALID_REQUEST
+
+
+def test_browser_preflight_is_supported_for_public_mcp(http_server):
+    status, headers = options(http_server[0])
+
+    assert status == 204
+    assert headers["Access-Control-Allow-Origin"] == "*"
+    assert "POST" in headers["Access-Control-Allow-Methods"]
+    assert "MCP-Protocol-Version" in headers["Access-Control-Allow-Headers"]
 
 
 def test_http_rate_limit_returns_429_and_retry_after(http_server, monkeypatch):

@@ -21,6 +21,10 @@ def test_operational_console_page_has_afterbell_sections_not_reference_branding(
     assert "human review" not in dashboard.PAGE.lower()
     assert "<option>PASS</option>" not in dashboard.PAGE
     assert "<option>BLOCK</option>" not in dashboard.PAGE
+    assert "The stock sleeps. The token doesn't." in dashboard.PAGE
+    assert "Why the public result may be $0" in dashboard.PAGE
+    assert "Public tools advise any agent" in dashboard.PAGE
+    assert "fetch('/api/status'" in dashboard.PAGE
     assert "Deltr" not in dashboard.PAGE
 
 
@@ -107,3 +111,19 @@ def test_published_baselines_keep_coverage_separate_from_policy(
     assert baseline.status == "CALIBRATED"
     assert baseline.n_by_state["CLOSED_HOLIDAY"] == 1440
     assert baseline.spread_ratio(2.2) == 2.0
+
+
+def test_live_status_is_small_and_excludes_archive_evidence(monkeypatch):
+    monkeypatch.setattr(dashboard, "_load_guard_state", lambda: {
+        "status": "BLOCK", "gates": {}, "gate_detail": {}, "ts": "now",
+    })
+    monkeypatch.setattr(dashboard, "_backup_state", lambda: {"status": "OK"})
+    monkeypatch.setattr(dashboard, "head_of", lambda path: "abc")
+    status = dashboard.live_status()
+    assert status["guard"]["status"] == "Blocked"
+    assert status["backup"]["status"] == "Healthy"
+    assert status["ledger_head"] == "abc"
+    assert "status_generated_at" in status
+    assert "history" not in status
+    assert "receipts" not in status
+    assert "calibration_markdown" not in status

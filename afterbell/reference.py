@@ -31,8 +31,7 @@ against the 224.435 IEX print measured the previous session, 1.1bps apart.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
 
 from afterbell.clock import ET, MarketState, evaluate as clock_at, rth_close_time
 

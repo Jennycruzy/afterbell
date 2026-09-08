@@ -6,7 +6,8 @@ and this one at the same time, and has to ask permission before it acts. The
 guard stops being a component of one project and becomes a boundary anyone can
 put in front of their own.
 
-Three tools, all read-only:
+Three non-executing tools. Two only read state; evaluate_order also writes an
+audit receipt:
 
     evaluate_order(symbol, side, notional, query)  -> the full decision
     get_market_state(symbol)                       -> state, REFERENCE_AGE,
@@ -538,7 +539,7 @@ def handle(message: Any) -> dict[str, Any] | None:
             "capabilities": {"tools": {"listChanged": False}},
             "serverInfo": SERVER_INFO,
             "instructions": (
-                "AFTERBELL is a read-only calendar-aware risk boundary for "
+                "AFTERBELL is a non-executing calendar-aware risk boundary for "
                 "Binance bStocks. Call evaluate_order before acting on a "
                 "bStock; it returns the size that is acceptable given where "
                 "the underlying US market is in its calendar. It cannot place "
@@ -597,6 +598,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Expose-Headers", "Retry-After")
         self.end_headers()
         self.wfile.write(body)
 
@@ -621,6 +624,15 @@ class Handler(BaseHTTPRequestHandler):
         self._send(429, body, headers={
             "Retry-After": str(decision.retry_after_s)})
 
+
+    def do_OPTIONS(self) -> None:
+        self._send(204, b"", headers={
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": (
+                "Content-Type, MCP-Protocol-Version, MCP-Session-Id"
+            ),
+            "Access-Control-Max-Age": "86400",
+        })
     def do_GET(self) -> None:
         if self.path == "/healthz":
             return self._send(200, b"ok", "text/plain")

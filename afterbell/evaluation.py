@@ -32,8 +32,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from afterbell.adversary import (
-    CORPUS, REFUSED, SNAPSHOTS, demo_context_factory, escalation_held,
-    run_corpus,
+    CORPUS, REFUSED, SNAPSHOTS, demo_context_factory, run_corpus,
 )
 from afterbell.guard import OrderRequest
 from afterbell.measure import Side

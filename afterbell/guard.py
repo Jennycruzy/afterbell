@@ -30,7 +30,7 @@ from afterbell.baselines import Baseline
 from afterbell.clock import ClockReading, MarketState, format_age
 from afterbell.instruments import registry_sha256
 from afterbell.measure import (
-    Book, BookProblem, Side, WalkResult, basis_bps, depth_within,
+    Book, BookProblem, Side, basis_bps, depth_within,
     half_spread_bps, walk_cost_bps,
 )
 from afterbell.positions import (
