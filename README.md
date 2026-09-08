@@ -554,4 +554,8 @@ change, so the timestamps and source links on the dashboard matter.
 
 ## License
 
-MIT. Technical demonstration only.
+[MIT](LICENSE). Use it, change it, ship it.
+
+Technical demonstration only: the licence grants permission to use the
+software, and says nothing about the wisdom of any trade. See
+[Important boundaries](#important-boundaries) for what this is not.

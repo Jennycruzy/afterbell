@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "afterbell"
 version = "0.1.0"
 description = "A deterministic, calendar-aware risk boundary for tokenized equities"
+license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
   "httpx>=0.28",
