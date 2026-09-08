@@ -3,24 +3,24 @@
 Use this order for the submission video and live review. It explains the
 product before showing the operations console.
 
-## The 90-second story
+## The two-minute story
 
-1. **Problem — 10 seconds.** A Binance bStock token remains tradable while its
+1. **Problem — 15 seconds.** A Binance bStock token remains tradable while its
    U.S. reference market sleeps. An AI agent can otherwise size against an old
    reference without noticing.
-2. **Autonomy — 15 seconds.** Show “Noticed without being asked.” AFTERBELL
+2. **Autonomy — 20 seconds.** Show “Noticed without being asked.” AFTERBELL
    records material band changes on its own and authorizes nothing merely by
    observing them.
-3. **Decision — 20 seconds.** Show the seven deterministic checks, requested
+3. **Decision — 25 seconds.** Show the seven deterministic checks, requested
    amount, permitted amount, binding check, policy hash, and receipt hash.
-4. **Expected public block — 10 seconds.** Explain that an anonymous visitor
+4. **Expected public block — 15 seconds.** Explain that an anonymous visitor
    has no signed account-position evidence. Zero is the safe expected result,
    not a broken demo.
-5. **Enforcement boundary — 20 seconds.** Say exactly: “Any agent can use the
+5. **Enforcement boundary — 25 seconds.** Say exactly: “Any agent can use the
    public advisory ceiling. In the governed path, a supported client redeems a
    short-lived, single-use authorization and cannot increase its amount.
    AFTERBELL does not control unrelated tools held by third parties.”
-6. **Proof — 15 seconds.** Show order `54422149`: 5.00 USDT requested, 5.00
+6. **Proof — 20 seconds.** Show order `54422149`: 5.00 USDT requested, 5.00
    permitted, 4.86192 actually spent, with the venue credential remaining in
    Binance Agent OS.
 
@@ -46,3 +46,12 @@ the existing minimum-size fill is the acceptance evidence.
 - Do not claim guaranteed advance corporate-action notice.
 - Do not describe a public missing-position refusal as a market prediction.
 - Do not describe the historical fill as an open position.
+
+## Recorded walkthrough
+
+A two-and-a-half minute narrated walkthrough is recorded. It films the live
+public dashboard as an anonymous visitor would see it, so every panel on
+screen is the running system rather than a mock-up.
+
+It states the test count, the coverage figure and the acceptance order on
+screen. Re-record it if any of those change.

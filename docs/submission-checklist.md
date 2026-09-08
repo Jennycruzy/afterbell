@@ -33,9 +33,9 @@ actions that still need an outside destination.
   [binance/binance-skills-hub#337](https://github.com/binance/binance-skills-hub/pull/337).
   It is open and awaiting review; it is not merged, and it is reported as
   opened rather than accepted until that destination says otherwise.
-- [ ] Record the public dashboard, public MCP surface, backup
-  evidence, and the existing minimum-size acceptance record for the video and
-  submission portal. Follow [`submission-runbook.md`](submission-runbook.md).
+- [x] Record the public dashboard, public MCP surface, and the existing
+  minimum-size acceptance record. See [`submission-runbook.md`](submission-runbook.md).
+- [ ] Upload the recorded walkthrough and the write-up to the submission portal.
 - [x] Keep unattended account authentication outside this package. A supported
   client can sign a fresh position report as documented in `position-input.md`;
   anonymous calls without that evidence deliberately fail closed. Moving
@@ -43,8 +43,8 @@ actions that still need an outside destination.
 - [x] Explain that the current venue-status check does not guarantee advance
   notice of every corporate action.
 
-The remaining video/portal checkbox requires the external submission
-destination; it is not an unfinished code path.
+The remaining upload checkbox requires the external submission destination;
+it is not an unfinished code path.
 
 ## Safe final step before any live order
 

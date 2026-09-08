@@ -17,3 +17,11 @@ config/authorization.key
 # Position-attestor evidence and snapshots can contain account information.
 data/account-export.json
 data/position-snapshot.json
+
+# Recorded video and everything used to produce it stays out of the repository.
+*.mp4
+*.mov
+*.wav
+HANDOFF.md
+scripts/video/
+scripts/render_submission_video.sh
