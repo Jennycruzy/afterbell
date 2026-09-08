@@ -5,6 +5,7 @@ its five safety properties is asserted here rather than assumed: short-lived,
 signed, single-use, monotone, chained.
 """
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -19,6 +20,9 @@ from afterbell.guard import Verdict, evaluate, to_receipt
 from afterbell.ledger import Ledger
 
 from tests.test_guard import POL, ctx_at, req
+
+UNCALIBRATED_POL = replace(
+    POL, raw=dict(POL.raw) | {"status": "UNCALIBRATED"})
 
 RTH = "2026-09-03 15:00"
 WEEKEND = "2026-09-05 22:00"
@@ -50,6 +54,15 @@ def test_a_freshly_issued_authorization_verifies(keys, ledger):
     verify(auth, keys[1])
     assert auth.permitted_notional == d.allowed_notional
     assert auth.signature.startswith("ed25519:")
+
+
+def test_an_uncalibrated_policy_cannot_issue_authorization(keys, ledger):
+    priv, _ = keys
+    r = req(100.0)
+    d = evaluate(r, ctx_at(RTH), UNCALIBRATED_POL)
+    receipt = ledger.append(to_receipt(d, r))
+    with pytest.raises(AuthorizationError, match="CALIBRATED"):
+        issue(d, r, receipt, priv)
 
 
 def test_tampered_permitted_notional_is_rejected(keys, ledger):

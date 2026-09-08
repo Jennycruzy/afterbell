@@ -70,6 +70,11 @@ def plan(decision: Decision, req: OrderRequest, pol: Policy) -> ExecutionPlan:
             "execution is disabled in policy; enable it by editing the "
             "checksummed file, which is the only way it can be enabled")
 
+    if not pol.is_calibrated:
+        raise ExecutionRefused(
+            "execution requires policy status CALIBRATED; current status is "
+            f"{pol.status}")
+
     if decision.verdict is Verdict.BLOCK or decision.allowed_notional <= 0:
         raise ExecutionRefused(
             f"the guard returned {decision.verdict.value} with "

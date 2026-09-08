@@ -374,6 +374,7 @@ def evaluate_order(args: dict[str, Any]) -> dict[str, Any]:
         "policy_sha256": d.policy_sha256,
         "receipt_seq": (guard.last_receipt or {}).get("seq"),
         "receipt_hash": (guard.last_receipt or {}).get("hash"),
+        "policy_status": d.policy_status,
         "disclaimer": ("AFTERBELL evaluates; it never places an order. This "
                        "is a technical demonstration, not investment advice."),
     }

@@ -62,6 +62,24 @@ if [ "${pct:-0}" -ge "$DISK_PCT_ALERT" ]; then
   issues=1
 fi
 
+BACKUP_STATUS=/home/ubuntu/afterbell/data/backup_status.json
+BACKUP_MAX_AGE=7200
+if [ ! -f "$BACKUP_STATUS" ]; then
+  echo "$(ts) BACKUP GAP: status file missing" >> "$LOG"
+  issues=1
+else
+  backup_status=$(sed -n 's/.*"status":"\([^" ]*\)".*/\1/p' "$BACKUP_STATUS")
+  backup_ts=$(sed -n 's/.*"ts":"\([^" ]*\)".*/\1/p' "$BACKUP_STATUS")
+  backup_epoch=$(date -u -d "$backup_ts" +%s 2>/dev/null || echo 0)
+  now_epoch=$(date +%s)
+  backup_age=$((now_epoch - backup_epoch))
+  if [ "$backup_status" != "OK" ] || [ "$backup_epoch" -le 0 ] ||
+     [ "$backup_age" -gt "$BACKUP_MAX_AGE" ]; then
+    echo "$(ts) BACKUP GAP: status=${backup_status:-unknown} age=${backup_age}s" >> "$LOG"
+    issues=1
+  fi
+fi
+
 if [ "$issues" -eq 0 ]; then
   "$HEALTH" ok "afterbell watchdog healthy; disk=${pct}%"
 else

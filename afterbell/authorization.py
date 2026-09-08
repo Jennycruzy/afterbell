@@ -175,6 +175,11 @@ def issue(decision: Any, request: Any, receipt: dict[str, Any],
     now = now or datetime.now(timezone.utc)
     if ttl_s <= 0:
         raise AuthorizationError("ttl must be positive")
+    policy_status = getattr(decision, "policy_status", None)
+    if policy_status != "CALIBRATED":
+        raise AuthorizationError(
+            f"policy status is {policy_status}; authorization issuance requires "
+            "a CALIBRATED policy")
     if decision.allowed_notional > decision.requested_notional:
         # Unreachable through guard.evaluate, which takes a min() against the
         # request. Asserted anyway: this is the last place it could be caught.

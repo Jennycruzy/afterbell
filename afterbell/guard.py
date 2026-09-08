@@ -141,6 +141,10 @@ class Decision:
     rationale: str
     context: MarketContext
     policy_sha256: str
+    # The checksum identifies the exact policy bytes; this status records
+    # whether those bytes have passed the human calibration review required
+    # before an actionable authorization may be signed.
+    policy_status: str = "UNKNOWN"
 
     @property
     def gate_map(self) -> dict[str, str]:
@@ -573,7 +577,7 @@ def evaluate(req: OrderRequest, ctx: MarketContext, pol: Policy) -> Decision:
         return Decision(
             Verdict.BLOCK, 0.0, req.notional, "OPERATOR_FREEZE", [frozen],
             _rationale(Verdict.BLOCK, 0.0, req, ctx, [frozen]), ctx,
-            pol.sha256)
+            pol.sha256, pol.status)
 
     gates = [
         gate_clock(ctx, pol),
@@ -595,7 +599,7 @@ def evaluate(req: OrderRequest, ctx: MarketContext, pol: Policy) -> Decision:
         binding = ",".join(g.name for g in blocking)
         return Decision(Verdict.BLOCK, 0.0, req.notional, binding, gates,
                         _rationale(Verdict.BLOCK, 0.0, req, ctx, blocking),
-                        ctx, pol.sha256)
+                        ctx, pol.sha256, pol.status)
 
     tightest = min(gates, key=lambda g: g.factor)
     ceiling = pol.base_notional * tightest.factor
@@ -613,7 +617,7 @@ def evaluate(req: OrderRequest, ctx: MarketContext, pol: Policy) -> Decision:
     binding = tightest.name if allowed < req.notional else "none"
     return Decision(verdict, allowed, req.notional, binding, gates,
                     _rationale(verdict, allowed, req, ctx, [tightest]), ctx,
-                    pol.sha256)
+                    pol.sha256, pol.status)
 
 
 def _rationale(verdict: Verdict, allowed: float, req: OrderRequest,
@@ -669,6 +673,7 @@ def to_receipt(d: Decision, req: OrderRequest) -> dict[str, Any]:
         "binding_constraint": d.binding_constraint,
         "blocking_gates": [g.name for g in d.gates if g.is_hard_block],
         "policy_sha256": d.policy_sha256,
+        "policy_status": d.policy_status,
         "registry_sha256": registry_sha256(),
         "rationale": d.rationale,
         "corporate_action_note": ctx.corporate_action_note,

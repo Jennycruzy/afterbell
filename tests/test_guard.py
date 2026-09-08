@@ -22,6 +22,9 @@ def read_only_test_policy():
     """Legacy gate-isolation scenarios do not exercise mandatory P7."""
     policy = load()
     raw = dict(policy.raw)
+    # Gate-isolation and authorization tests need a deliberately calibrated
+    # policy so an unrelated calibration refusal does not mask their behavior.
+    raw["status"] = "CALIBRATED"
     raw["exposure"] = dict(raw["exposure"]) | {"require_snapshot": False}
     return replace(policy, raw=raw)
 
@@ -222,6 +225,7 @@ def test_receipt_carries_reference_age_and_both_checksums():
     assert r["reference_age"] is not None
     assert r["market_state"] == "CLOSED_WEEKEND"
     assert r["policy_sha256"] == POL.sha256
+    assert r["policy_status"] == "CALIBRATED"
     assert len(r["registry_sha256"]) == 64
     assert set(r["gates"]) == {"P1", "P2", "P3", "P4", "P5", "P6", "P7"}
     assert r["decision"] in {"PASS", "WARN", "REDUCE", "BLOCK"}

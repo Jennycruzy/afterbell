@@ -19,7 +19,7 @@ is not. Sections marked _not yet built_ are not built.
 | Payloads that raised permitted size above control | **0** |
 | Attacks that had to be refused, and were | 16/16 |
 | Positive controls passed (the suite cannot win by refusing everything) | 6/6 |
-| Live evaluations receipted | 2,488 |
+| Live evaluations receipted | 6,479 |
 | Regular-hours evaluations with a live reference | 393 |
 | Of those, evaluations with a measurably normal book | 100 |
 | Permitted in full on a normal book | 99/100 |
@@ -27,10 +27,10 @@ is not. Sections marked _not yet built_ are not built.
 | Of which the designed closing-bell ramp | 1 |
 | Correct reductions (a measurement really was out of band) | 109 |
 | Refusals while a baseline was still uncalibrated | 0 |
-| Refusals under a shut or stale reference market | 2,205 |
+| Refusals under a shut or stale reference market | 6,193 |
 | Operator freeze refusals | 2 |
 | Silent failures found by this project's own tooling and fixed | 6 |
-| Order books recorded / reference prints measured | 17,965 / 14,135 |
+| Order books recorded / reference prints measured | 38,185 / 34,345 |
 
 **How the false-positive rate is defined.** The cohort is regular trading hours, with a live reference print, and a book that was measurably normal: spread at or under its own RTH median, depth at or over it, and the baseline past the sample minimum. Inside that cohort nothing the policy measures was out of band, so any withheld size is a false positive. Reductions where a measurement *was* out of band are counted separately as correct, and refusals during a closure are not counted at all, because the market really was shut.
 
@@ -215,15 +215,16 @@ Four lines around an existing agent, trading logic untouched. Or from a shell:
 python -m afterbell.engine --symbol NVDABUSDT --notional 5000 --query "buy Nvidia"
 ```
 
-For an executable policy, pass a fresh signed supported-client position
+For any actionable evaluation under the deployed policy, pass a fresh signed supported-client position
 snapshot too:
 
     python -m afterbell.engine --symbol NVDABUSDT --notional 5000 --query "buy Nvidia" \
       --position-snapshot /path/to/position-snapshot.json
 
-The MCP evaluate_order tool accepts the same position_snapshot object.
-AFTERBELL has no live position feed; without a snapshot the shipped read-only
-policy records P7 as not required, while an executable policy blocks.
+The MCP evaluate_order tool accepts the same `position_snapshot` object.
+With `exposure.require_snapshot: true`, an actionable evaluation without a fresh
+signed snapshot is fail-closed: P7 blocks it. Read-only market-state calls do
+not need a position snapshot.
 
 ## The adversarial corpus
 
@@ -435,9 +436,9 @@ rewrite is a threshold an attacker who reaches that process can rewrite
 
 Two rules govern what may be published here. A statistic below its sample
 minimum is not a weaker statistic, it is not a statistic, and it is reported
-`UNCALIBRATED` rather than printed with a caveat (Law 1). And a state the
-recorder has not lived through is named as unobserved rather than estimated
-from the states it has.
+`UNCALIBRATED` rather than printed with a caveat (Law 1). The recorder has now
+lived through `CLOSED_HOLIDAY`, so the current report includes measured holiday
+rows rather than estimates from another state.
 
 **Price-disagreement bands are measured on `RTH_OPEN` samples only.** This is not a detail.
 The price-disagreement check asks whether the token and its reference *disagree*, and off-hours that
@@ -451,50 +452,56 @@ definition of disagreement, and the price-disagreement check would then grade th
 yardstick built from the weekend. Staleness already has its own control, the
 DEGRADED floor keyed on reference age, and one risk must not be counted twice.
 
-Two different things are calibrated on two different schedules, and only the
-first of them is done:
+Two different things are calibrated on two different schedules; the measured
+baseline pass is complete, but the signed policy review is not:
 
 ```
 Liquidity baselines:    CALIBRATED   (781 RTH_OPEN samples/symbol, 300 required)
-Risk policy thresholds: UNCALIBRATED (CLOSED_HOLIDAY unobserved until 7 Sep)
+Risk policy thresholds: UNCALIBRATED (manual threshold review pending)
 ```
 
-The table below reports the first. `config/policy.yaml` ships the second as
-`status: UNCALIBRATED`, and no threshold in it was promoted from measurement
-without a human reading the proposal first.
+The table below reports the measured distributions. `config/policy.yaml` still
+ships `status: UNCALIBRATED`: the holiday sample closes the data gap, but no
+threshold is promoted until a human reads the proposal and accepts the signed
+policy change.
 
 <!-- CALIBRATION TABLE START -->
-Generated 2026-09-05 13:50Z from 17,965 measured books and 14,135 reference prints. Depth band ±1%; baseline window: rolling 7-day window.
+Generated 2026-09-08 09:11Z from 38,185 measured books and 34,345 reference prints. Depth band ±1%; baseline window: rolling 7-day window.
 
 ### Session baselines (liquidity denominators)
 
 | Symbol | State | n | Median half-spread (bps) | Median depth ±1% (USDT) | p95 half-spread | p05 depth |
 |---|---|---:|---:|---:|---:|---:|
-| CRCLBUSDT | CLOSED_OVERNIGHT | 841 | 0.561 | 754,813 | 1.125 | 684,890 |
-| CRCLBUSDT | CLOSED_WEEKEND | 831 | 0.492 | 789,821 | 0.986 | 443,741 |
+| CRCLBUSDT | CLOSED_HOLIDAY | 1,440 | 0.490 | 479,299 | 0.982 | 402,600 |
+| CRCLBUSDT | CLOSED_OVERNIGHT | 1,081 | 0.560 | 751,188 | 1.124 | 684,890 |
+| CRCLBUSDT | CLOSED_WEEKEND | 3,120 | 0.491 | 750,556 | 0.984 | 455,821 |
 | CRCLBUSDT | RTH_OPEN | 781 | 0.510 | 763,467 | 2.460 | 699,980 |
 | CRCLBUSDT | RTH_POST | 480 | 0.492 | 809,383 | 0.978 | 710,374 |
-| CRCLBUSDT | RTH_PRE | 660 | 0.563 | 751,201 | 1.128 | 535,061 |
-| MUBUSDT | CLOSED_OVERNIGHT | 841 | 0.310 | 668,006 | 0.783 | 611,256 |
-| MUBUSDT | CLOSED_WEEKEND | 831 | 0.246 | 505,150 | 0.788 | 411,845 |
+| CRCLBUSDT | RTH_PRE | 735 | 0.561 | 747,445 | 1.127 | 537,267 |
+| MUBUSDT | CLOSED_HOLIDAY | 1,440 | 0.096 | 689,830 | 0.670 | 436,762 |
+| MUBUSDT | CLOSED_OVERNIGHT | 1,081 | 0.314 | 670,055 | 0.793 | 613,022 |
+| MUBUSDT | CLOSED_WEEKEND | 3,120 | 0.146 | 456,932 | 0.784 | 358,522 |
 | MUBUSDT | RTH_OPEN | 781 | 0.635 | 657,118 | 1.874 | 577,332 |
 | MUBUSDT | RTH_POST | 480 | 0.209 | 759,558 | 0.887 | 629,837 |
-| MUBUSDT | RTH_PRE | 660 | 0.579 | 715,016 | 1.297 | 618,552 |
-| NVDABUSDT | CLOSED_OVERNIGHT | 841 | 0.435 | 586,474 | 0.887 | 559,282 |
-| NVDABUSDT | CLOSED_WEEKEND | 831 | 0.217 | 605,309 | 0.434 | 576,141 |
+| MUBUSDT | RTH_PRE | 735 | 0.615 | 711,573 | 1.359 | 608,119 |
+| NVDABUSDT | CLOSED_HOLIDAY | 1,440 | 0.216 | 581,795 | 0.648 | 548,362 |
+| NVDABUSDT | CLOSED_OVERNIGHT | 1,081 | 0.431 | 588,728 | 0.870 | 560,339 |
+| NVDABUSDT | CLOSED_WEEKEND | 3,120 | 0.217 | 589,907 | 0.649 | 560,069 |
 | NVDABUSDT | RTH_OPEN | 781 | 1.099 | 601,868 | 2.179 | 566,699 |
 | NVDABUSDT | RTH_POST | 480 | 0.218 | 592,124 | 0.655 | 568,773 |
-| NVDABUSDT | RTH_PRE | 660 | 0.891 | 604,309 | 1.953 | 553,518 |
-| SNDKBUSDT | CLOSED_OVERNIGHT | 841 | 0.032 | 786,631 | 0.192 | 649,507 |
-| SNDKBUSDT | CLOSED_WEEKEND | 831 | 0.029 | 727,067 | 0.598 | 650,519 |
+| NVDABUSDT | RTH_PRE | 735 | 0.885 | 603,379 | 1.948 | 554,229 |
+| SNDKBUSDT | CLOSED_HOLIDAY | 1,440 | 0.028 | 876,809 | 0.223 | 697,480 |
+| SNDKBUSDT | CLOSED_OVERNIGHT | 1,081 | 0.032 | 787,390 | 0.259 | 651,088 |
+| SNDKBUSDT | CLOSED_WEEKEND | 3,120 | 0.028 | 821,491 | 0.375 | 681,817 |
 | SNDKBUSDT | RTH_OPEN | 781 | 0.226 | 822,895 | 1.307 | 672,872 |
 | SNDKBUSDT | RTH_POST | 480 | 0.032 | 742,193 | 0.693 | 701,420 |
-| SNDKBUSDT | RTH_PRE | 660 | 0.033 | 782,414 | 0.532 | 673,831 |
-| TSLABUSDT | CLOSED_OVERNIGHT | 841 | 0.667 | 430,072 | 1.115 | 402,467 |
-| TSLABUSDT | CLOSED_WEEKEND | 831 | 0.282 | 475,502 | 0.845 | 448,076 |
+| SNDKBUSDT | RTH_PRE | 735 | 0.033 | 802,253 | 0.679 | 674,654 |
+| TSLABUSDT | CLOSED_HOLIDAY | 1,440 | 0.423 | 505,456 | 1.126 | 440,628 |
+| TSLABUSDT | CLOSED_OVERNIGHT | 1,081 | 0.561 | 436,796 | 1.088 | 404,955 |
+| TSLABUSDT | CLOSED_WEEKEND | 3,120 | 0.281 | 516,315 | 0.984 | 458,959 |
 | TSLABUSDT | RTH_OPEN | 781 | 0.991 | 478,860 | 2.630 | 443,672 |
 | TSLABUSDT | RTH_POST | 480 | 0.662 | 482,965 | 2.380 | 431,020 |
-| TSLABUSDT | RTH_PRE | 660 | 0.954 | 451,103 | 2.044 | 419,759 |
+| TSLABUSDT | RTH_PRE | 735 | 0.850 | 453,930 | 2.026 | 420,254 |
 
 **Status: CALIBRATED.** Every symbol has at least 300 RTH_OPEN samples.
 
@@ -502,11 +509,12 @@ Generated 2026-09-05 13:50Z from 17,965 measured books and 14,135 reference prin
 
 | State | n | p50 \|basis\| | p75 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
-| CLOSED_OVERNIGHT | 2,400 | 91.5 | 143.9 | 187.0 | 202.9 |
-| CLOSED_WEEKEND | 4,155 | 30.9 | 55.9 | 120.0 | 178.1 |
+| CLOSED_HOLIDAY | 7,200 | 90.5 | 247.2 | 293.9 | 378.0 |
+| CLOSED_OVERNIGHT | 3,600 | 102.0 | 161.0 | 274.7 | 384.6 |
+| CLOSED_WEEKEND | 15,600 | 48.8 | 111.5 | 250.2 | 293.5 |
 | RTH_OPEN | 3,207 | 4.5 | 7.1 | 12.6 | 33.9 |
 | RTH_POST | 2,400 | 37.2 | 47.6 | 79.9 | 110.9 |
-| RTH_PRE | 2,360 | 150.5 | 207.6 | 315.5 | 537.6 |
+| RTH_PRE | 2,725 | 140.2 | 205.0 | 310.1 | 532.3 |
 
 Bands are proposed at empirical percentiles — WATCH at p75, DEGRADED at p95, BROKEN at p99 — rather than at round numbers.
 
@@ -514,15 +522,14 @@ Bands are proposed at empirical percentiles — WATCH at p75, DEGRADED at p95, B
 
 | State | n | $100 | $500 | $2,000 | $10,000 |
 |---|---:|---:|---:|---:|---:|
-| CLOSED_OVERNIGHT | 841 | 0.5 | 0.8 | 1.3 | 3.1 |
-| CLOSED_WEEKEND | 831 | 0.3 | 0.5 | 0.9 | 2.9 |
+| CLOSED_HOLIDAY | 1,440 | 0.4 | 0.6 | 1.2 | 3.5 |
+| CLOSED_OVERNIGHT | 1,081 | 0.5 | 0.8 | 1.3 | 3.2 |
+| CLOSED_WEEKEND | 3,120 | 0.4 | 0.5 | 1.1 | 3.4 |
 | RTH_OPEN | 781 | 1.0 | 1.2 | 1.8 | 3.8 |
 | RTH_POST | 480 | 0.4 | 0.5 | 1.0 | 2.6 |
-| RTH_PRE | 660 | 0.8 | 1.1 | 1.7 | 3.7 |
+| RTH_PRE | 735 | 0.8 | 1.1 | 1.7 | 3.7 |
 
 Median cost in bps to fill a marketable buy of each size against the recorded book. A size the book could not fill is counted as a miss, not as a large number: unfillable and expensive are different findings.
-
-**Not yet observed:** CLOSED_HOLIDAY. These rows appear once the recorder has lived through them; they are not estimated from the states that were.
 <!-- CALIBRATION TABLE END -->
 
 ## Try it against your own client
@@ -616,17 +623,15 @@ Computed from the trade prints the recorder already stores. bStocks trade on a c
 
 ### What was actually captured
 
-Before 2026-09-05 14:43 UTC, the recorder fetched the last 50 trades once a minute;
-that historical limit caused the coverage bias described below. It now fetches
-up to 1000 trades per cycle. Trade ids are consecutive, so the size of anything missed is knowable exactly, and is reported rather than assumed away.
+Before 2026-09-05 14:43 UTC, the recorder fetched the last 50 trades once a minute; that historical limit caused the coverage bias described below. It now fetches up to 1000 trades per cycle. Trade ids are consecutive, so the size of anything missed is knowable exactly, and is reported rather than assumed away.
 
 | Symbol | Prints captured | Prints that occurred | Share of tape | Minutes with no hole | Diurnal flatness |
 |---|---:|---:|---:|---:|---:|
-| CRCLBUSDT | 93,480 | 207,447 | 45.1% | 72.1% | 0.138 |
-| MUBUSDT | 40,220 | 56,655 | 71.0% | 93.2% | 0.055 |
-| NVDABUSDT | 43,836 | 60,846 | 72.0% | 92.9% | 0.147 |
-| SNDKBUSDT | 111,587 | 324,695 | 34.4% | 64.3% | 0.095 |
-| TSLABUSDT | 42,840 | 54,922 | 78.0% | 93.9% | 0.065 |
+| CRCLBUSDT | 259,183 | 415,947 | 62.3% | 86.3% | 0.154 |
+| MUBUSDT | 104,950 | 121,385 | 86.5% | 96.7% | 0.149 |
+| NVDABUSDT | 68,335 | 85,345 | 80.1% | 96.6% | 0.240 |
+| SNDKBUSDT | 312,294 | 525,975 | 59.4% | 82.8% | 0.184 |
+| TSLABUSDT | 61,500 | 73,582 | 83.6% | 97.1% | 0.078 |
 
 In the historical pre-fix sample, the prints lost were the ones in bursts, which is exactly where automation would show. Timing figures below are therefore computed only across pairs of arrivals with consecutive ids, where nothing can have been missed between them.
 
@@ -636,41 +641,46 @@ Diurnal flatness is the quietest hour's volume over the busiest hour's across th
 
 | Symbol | State | Prints | Arrivals | Timed pairs | Inter-arrival CV | Bursts <200ms | Prints per arrival | Round sizes | Repeated sizes |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| CRCLBUSDT | CLOSED_OVERNIGHT | 22,067 | 16,480 | 16,291 | 2.78 | 57.7% | 1.34 | 4.2% | 76.2% |
-| CRCLBUSDT | CLOSED_WEEKEND | 11,988 | 8,374 | 8,293 | 3.27 | 50.0% | 1.43 | 3.7% | 82.0% |
+| CRCLBUSDT | CLOSED_HOLIDAY | 33,792 | 17,851 | 17,850 | 3.31 | 58.6% | 1.89 | 4.5% | 72.3% |
+| CRCLBUSDT | CLOSED_OVERNIGHT | 27,344 | 18,686 | 18,497 | 2.64 | 55.5% | 1.46 | 5.0% | 75.5% |
+| CRCLBUSDT | CLOSED_WEEKEND | 137,099 | 72,015 | 71,911 | 4.37 | 66.1% | 1.90 | 1.8% | 92.4% |
 | CRCLBUSDT | RTH_OPEN | 28,037 | 14,897 | 14,508 | 2.39 | 51.5% | 1.88 | 4.0% | 70.6% |
 | CRCLBUSDT | RTH_POST | 11,249 | 6,916 | 6,799 | 3.71 | 51.2% | 1.63 | 4.4% | 78.1% |
-| CRCLBUSDT | RTH_PRE | 20,139 | 12,863 | 12,621 | 2.85 | 58.9% | 1.57 | 2.9% | 71.6% |
-| MUBUSDT | CLOSED_OVERNIGHT | 6,352 | 4,227 | 4,203 | 2.50 | 42.4% | 1.50 | 1.1% | 71.8% |
-| MUBUSDT | CLOSED_WEEKEND | 5,360 | 3,582 | 3,563 | 2.67 | 37.5% | 1.50 | 4.0% | 70.0% |
+| CRCLBUSDT | RTH_PRE | 21,662 | 13,509 | 13,267 | 2.74 | 57.8% | 1.60 | 3.0% | 71.9% |
+| MUBUSDT | CLOSED_HOLIDAY | 40,215 | 23,521 | 23,521 | 3.34 | 54.8% | 1.71 | 2.7% | 85.2% |
+| MUBUSDT | CLOSED_OVERNIGHT | 12,487 | 8,168 | 8,144 | 2.82 | 37.5% | 1.53 | 1.3% | 75.6% |
+| MUBUSDT | CLOSED_WEEKEND | 22,121 | 14,060 | 14,041 | 2.93 | 41.6% | 1.57 | 3.3% | 75.8% |
 | MUBUSDT | RTH_OPEN | 18,019 | 12,792 | 12,640 | 2.27 | 40.8% | 1.41 | 3.2% | 76.1% |
 | MUBUSDT | RTH_POST | 3,744 | 2,501 | 2,490 | 2.62 | 40.4% | 1.50 | 1.0% | 68.3% |
-| MUBUSDT | RTH_PRE | 6,745 | 4,716 | 4,672 | 2.97 | 37.3% | 1.43 | 1.2% | 66.1% |
-| NVDABUSDT | CLOSED_OVERNIGHT | 8,018 | 4,750 | 4,717 | 2.00 | 13.1% | 1.69 | 1.2% | 72.2% |
-| NVDABUSDT | CLOSED_WEEKEND | 6,089 | 4,342 | 4,316 | 2.43 | 26.3% | 1.40 | 3.5% | 65.1% |
+| MUBUSDT | RTH_PRE | 8,364 | 5,674 | 5,630 | 3.03 | 39.6% | 1.47 | 1.4% | 67.0% |
+| NVDABUSDT | CLOSED_HOLIDAY | 12,708 | 8,449 | 8,449 | 3.06 | 36.5% | 1.50 | 3.0% | 74.2% |
+| NVDABUSDT | CLOSED_OVERNIGHT | 9,435 | 5,570 | 5,537 | 1.95 | 14.2% | 1.69 | 1.5% | 71.9% |
+| NVDABUSDT | CLOSED_WEEKEND | 15,962 | 11,420 | 11,394 | 2.18 | 19.1% | 1.40 | 3.6% | 74.4% |
 | NVDABUSDT | RTH_OPEN | 12,174 | 8,115 | 8,043 | 2.08 | 25.1% | 1.50 | 1.8% | 69.9% |
 | NVDABUSDT | RTH_POST | 8,671 | 5,257 | 5,187 | 2.90 | 34.2% | 1.65 | 0.9% | 84.5% |
-| NVDABUSDT | RTH_PRE | 8,884 | 5,437 | 5,378 | 2.52 | 21.6% | 1.63 | 1.5% | 74.6% |
-| SNDKBUSDT | CLOSED_OVERNIGHT | 21,322 | 12,759 | 12,588 | 2.46 | 48.3% | 1.67 | 0.4% | 81.4% |
-| SNDKBUSDT | CLOSED_WEEKEND | 22,061 | 11,968 | 11,807 | 3.30 | 43.5% | 1.84 | 2.8% | 83.0% |
+| NVDABUSDT | RTH_PRE | 9,385 | 5,778 | 5,719 | 2.46 | 22.1% | 1.62 | 1.5% | 74.8% |
+| SNDKBUSDT | CLOSED_HOLIDAY | 46,877 | 25,352 | 25,351 | 3.09 | 53.7% | 1.85 | 1.2% | 89.0% |
+| SNDKBUSDT | CLOSED_OVERNIGHT | 42,352 | 25,844 | 25,673 | 2.84 | 53.0% | 1.64 | 0.5% | 87.0% |
+| SNDKBUSDT | CLOSED_WEEKEND | 144,072 | 79,778 | 79,617 | 4.23 | 44.0% | 1.81 | 1.5% | 93.1% |
 | SNDKBUSDT | RTH_OPEN | 36,805 | 25,307 | 24,665 | 2.49 | 51.5% | 1.45 | 1.0% | 83.8% |
 | SNDKBUSDT | RTH_POST | 8,000 | 4,298 | 4,254 | 2.50 | 47.5% | 1.86 | 3.1% | 62.5% |
-| SNDKBUSDT | RTH_PRE | 23,399 | 14,785 | 14,491 | 2.43 | 47.7% | 1.58 | 0.4% | 82.8% |
-| TSLABUSDT | CLOSED_OVERNIGHT | 6,629 | 4,993 | 4,973 | 2.46 | 27.4% | 1.33 | 2.4% | 65.2% |
-| TSLABUSDT | CLOSED_WEEKEND | 7,898 | 4,194 | 4,179 | 1.84 | 19.9% | 1.88 | 3.6% | 77.1% |
+| SNDKBUSDT | RTH_PRE | 34,188 | 21,247 | 20,953 | 2.67 | 52.2% | 1.61 | 0.5% | 84.7% |
+| TSLABUSDT | CLOSED_HOLIDAY | 6,580 | 4,745 | 4,745 | 2.44 | 17.1% | 1.39 | 5.0% | 67.8% |
+| TSLABUSDT | CLOSED_OVERNIGHT | 7,743 | 5,708 | 5,688 | 2.31 | 26.2% | 1.36 | 2.8% | 65.7% |
+| TSLABUSDT | CLOSED_WEEKEND | 18,171 | 10,142 | 10,127 | 2.13 | 16.7% | 1.79 | 4.5% | 80.8% |
 | TSLABUSDT | RTH_OPEN | 16,297 | 10,640 | 10,516 | 2.05 | 32.0% | 1.53 | 2.2% | 69.3% |
 | TSLABUSDT | RTH_POST | 4,527 | 2,691 | 2,675 | 2.39 | 28.3% | 1.68 | 2.8% | 68.4% |
-| TSLABUSDT | RTH_PRE | 7,489 | 5,259 | 5,210 | 2.57 | 28.8% | 1.42 | 1.7% | 61.3% |
+| TSLABUSDT | RTH_PRE | 8,182 | 5,658 | 5,609 | 2.50 | 29.4% | 1.45 | 1.6% | 61.0% |
 
 ### What the numbers say
 
 **Not enough of the tape was captured to answer the question, and the honest result is to say so rather than to publish a direction.**
 
-The hypothesis worth testing was that the counterparty on the other side of a weekend trade is another agent. Answering it means comparing two market states, and that is only legitimate if both were sampled the same way. They were not: regular hours were captured at 24.0% and the weekend at 55.5%, because the historical fixed 50-print poll truncated a busy session far harder than a quiet weekend.
+The hypothesis worth testing was that the counterparty on the other side of a weekend trade is another agent. Answering it means comparing two market states, and that is only legitimate if both were sampled the same way. They were not: regular hours were captured at 24.0% and the weekend at 73.2%, because a historical fixed 50-print poll truncated a busy session far harder than a quiet weekend.
 
 That difference is not a detail. Measured both ways, the answer reverses. Counting every consecutive-id pair over-samples busy minutes, whose prints are the ones that survive truncation, and makes regular hours look burstier than the weekend. Restricting to minutes captured without a hole over-samples quiet minutes instead, and makes the weekend look burstier than regular hours. Both estimators are biased, in opposite directions, and both bite hardest on the busiest state. A finding that flips depending on which of two flawed estimators is chosen is not a finding.
 
-The cause was a recorder limit, not a market: the historical `TRADE_LIMIT` was 50 prints per minute, which is written up as the sixth silent failure. It was raised to 1000 on 2026-09-05 at 14:43 UTC, and since then every cycle has been captured with no holes at all. Once a full session and a full closure have been recorded that way, this comparison becomes answerable and the answer will appear here.
+The cause was a recorder limit, not a market: `TRADE_LIMIT` was 50 prints per minute, which is written up as the sixth silent failure. It was raised to 1000 on 2026-09-05 at 14:43 UTC, and since then every cycle has been captured with no holes at all. Once a full session and a full closure have been recorded that way, this comparison becomes answerable and the answer will appear here.
 
 The per-state tables below stand on their own — they describe what was seen, which is a fact — but no comparison **between** states should be read off them until coverage is even.
 
@@ -682,16 +692,16 @@ Regenerate with `.venv/bin/python -m afterbell.counterparty`.
 
 ## Remaining gaps
 
-1. **D7 Skills Hub PR:** not opened.
-2. **D11 video and submission mechanics:** not started.
-3. **D6 corporate-action lookahead:** Binance current processing status is
-   authoritative but does not guarantee advance notice; Alpaca reference
-   validation is configured, not an independent corporate-action source.
-4. **D8 Square publishing:** awaits Creator Center API key.
-5. **D9 counterparty comparison:** continue the corrected post-fix sample
-   through an even regular-hours/closure comparison.
-6. **Calibration:** `CLOSED_HOLIDAY` and manual threshold review remain before
-   changing the signed policy from `UNCALIBRATED`.
+Track the submission handoff in [`docs/submission-checklist.md`](docs/submission-checklist.md).
+
+1. **Calibration review:** the recorder now includes `CLOSED_HOLIDAY` (1,440 samples per symbol in the latest report); the signed policy remains `UNCALIBRATED` until a human reviews and deliberately promotes thresholds.
+2. **Backup/storage:** live Google Drive copy and stable-data verification passed at 2026-09-08 08:43 UTC, covering through 2026-09-07. The 14-day retention policy is implemented and isolated-test-covered; no production archive is old enough to have been pruned yet.
+3. **Unattended signed snapshots:** a supported-client authentication path is still needed for safe, unattended position-snapshot publishing.
+4. **D7 Skills Hub PR:** not opened.
+5. **D11 video and submission mechanics:** not started.
+6. **D8 Square publishing:** awaits Creator Center API key.
+7. **D9 counterparty comparison:** continue the corrected post-fix sample through an even regular-hours/closure comparison.
+8. **D6 corporate-action lookahead:** Binance current processing status is authoritative but does not guarantee advance notice; Alpaca reference validation is configured, not an independent corporate-action source.
 
 ## Known limitations
 
@@ -712,11 +722,15 @@ Regenerate with `.venv/bin/python -m afterbell.counterparty`.
   `isSupported=false` and `hasResult=false`, so contract verification is explicitly
   registry-only for bStocks.
 - **Corporate-action protection is Binance-native.** It uses bStocks processing status and reported reason messages, not Alpaca credentials. Binance does not guarantee advance notice, so receipts label a clear current state as partial rather than claiming a lookahead.
-- **Off-site backup is configured; external alerting is not yet proven.** The
-  backup uses non-destructive `rclone copy` to Google Drive. The watchdog logs
-  an explicit alert gap when no Healthchecks URL is populated; verify a real
-  transition before claiming delivery. Credentials remain outside the
-  repository.
+- **Backup/storage is live-verified but not transactional.** The recorder is producing roughly
+  3.9 GB of raw data at this audit point. The 2026-09-08 08:43 UTC run used the
+  service-writable rclone config, copied stable data, and passed `rclone check`
+  through 2026-09-07. The job skips hot files and only prunes raw archives after
+  an exact remote check at the 14-day boundary; no production archive has reached
+  that boundary yet. This verifies a stable remote set, not an atomic point-in-time
+  snapshot. The watchdog now treats missing, failed, or older-than-two-hours
+  backup status as unhealthy. External alerting still needs its own transition
+  proof. Credentials remain outside the repository.
 - **AFTERBELL never places an order.** Its Python processes hold no Binance
   OAuth credential and contain no authenticated Agent OS client. The guard signs
   an exact, short-lived authorization only after applying its ceilings; the

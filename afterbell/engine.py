@@ -403,6 +403,10 @@ def main() -> None:
         raise SystemExit(
             "authorization issuance is disabled by policy; use a deliberate, "
             "checksummed demo policy with executor.enabled: true")
+    if a.authorize and not guard.policy.is_calibrated:
+        raise SystemExit(
+            "authorization issuance requires policy status CALIBRATED; "
+            f"current status is {guard.policy.status}")
     req = OrderRequest(a.symbol, Side(a.side), a.notional,
                        query=a.query or a.symbol,
                        observed_contract=a.contract, audit_verdict=a.audit)

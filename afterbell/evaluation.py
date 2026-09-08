@@ -252,7 +252,7 @@ def render(adv: AdversarialSummary, led: LedgerSummary, *,
         "sample minimum. A guard that permitted those would be broken, not "
         "precise.",
         "",
-        "Regenerate with `python -m afterbell.evaluation`. Every figure above "
+        "Regenerate with `.venv/bin/python -m afterbell.evaluation`. Every figure above "
         "is computed from the adversarial corpus and the receipt ledger; none "
         "is maintained by hand.",
     ]

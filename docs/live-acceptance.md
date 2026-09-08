@@ -49,7 +49,7 @@ manually gated and require a fresh signed snapshot and explicit approval.
 - Open the Skills Hub PR if it is required by the submission.
 - Continue the corrected counterparty sample through a complete regular
   session after the recorder fix.
-- Review calibration proposals after the Labor Day holiday sample; do not
-  promote thresholds automatically.
+- Review the captured Labor Day `CLOSED_HOLIDAY` sample and the generated proposals;
+  do not promote thresholds automatically.
 - Square publishing and unattended snapshot publishing still require their
   respective external credentials or automation authority.

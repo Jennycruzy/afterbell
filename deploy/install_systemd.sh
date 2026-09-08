@@ -10,6 +10,7 @@ sudo install -m 0644 "$repo"/deploy/systemd/afterbell-backup.timer /etc/systemd/
 sudo install -m 0644 "$repo"/deploy/systemd/afterbell-watchdog.service /etc/systemd/system/
 sudo install -m 0644 "$repo"/deploy/systemd/afterbell-watchdog.timer /etc/systemd/system/
 sudo install -d -m 0755 /usr/local/libexec
+sudo install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.config/rclone
 sudo install -m 0755 "$repo"/scripts/backup.sh /usr/local/libexec/afterbell-backup.sh
 sudo install -m 0755 "$repo"/scripts/healthcheck.sh /usr/local/libexec/afterbell-healthcheck.sh
 sudo install -m 0755 "$repo"/scripts/watchdog.sh /usr/local/libexec/afterbell-watchdog.sh

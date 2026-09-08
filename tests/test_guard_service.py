@@ -29,7 +29,7 @@ def test_evaluate_once_records_and_links_receipt(monkeypatch, tmp_path):
         "reference_age": "00:00:01", "reference_price": 1.0,
         "reference_ts": "2026-09-03T00:00:00Z", "token_price": 1.0,
         "gates": {}, "gate_detail": {}, "measurements": {},
-        "policy_sha256": "policy", "rationale": "blocked",
+        "policy_sha256": "policy", "policy_status": "CALIBRATED", "rationale": "blocked",
     }
     written = {}
     monkeypatch.setattr(service, "to_receipt", lambda d, r: receipt)

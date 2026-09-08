@@ -46,8 +46,9 @@ The safe order is:
    receipt reports `P7` as `VERIFIED`, with the expected snapshot
    digest, source, age, and gross exposure. A stale, future, unsigned, or
    incorrectly signed snapshot must be refused.
-5. Only after that evidence exists, set `exposure.require_snapshot: true`.
-   Enable `executor.enabled` only in a deliberate, reviewed policy change;
+5. Confirm `exposure.require_snapshot: true` remains set; do not disable it
+   while the connected account has any exposure. Enable `executor.enabled` only
+   in a deliberate, reviewed policy change;
    the loader refuses an executable policy without both the requirement and the
    configured public key.
 6. Restart and verify the guard/MCP services after the policy or external key

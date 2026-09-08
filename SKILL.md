@@ -73,14 +73,15 @@ python -m afterbell.engine --symbol NVDABUSDT --notional 5000 --query "buy Nvidi
     Corporate action WARN    f=1.000  Binance processing status TRADING verified; advance notice is not guaranteed
     Instrument ID    PASS    f=1.000  NVDAB resolved to NVDA via BTech Holdings Limited
     Contract check   PASS    f=1.000  venue-internal spot pair; canonical registry applies
-    Aggregate exposure PASS f=1.000  no signed position snapshot supplied; P7 is not required by the current read-only policy
+    Aggregate exposure BLOCK f=0.000  no signed position snapshot supplied; P7 is required by the current policy
 
   DECISION  BLOCK     requested 5,000 -> allowed 0 USDT
-  BINDING   market closure, liquidity
+  BINDING   market closure, liquidity, aggregate exposure
 ```
 
 This is the output shape for a Saturday evaluation before the RTH baseline has
-reached its required sample count. The liquidity check blocks until that denominator is measured.
+reached its required sample count and without the signed position snapshot now
+required by the deployed policy. The liquidity and P7 checks both fail closed.
 Note that the two clock numbers are
 different measurements and are not interchangeable: `REFERENCE_AGE` 16:00:00 is
 how stale the last print already is, while 73.5h is how long until the next
@@ -137,9 +138,12 @@ SHA-256 travels into every receipt so a reader can tell which rules produced a
 given decision. The loader refuses to start on a missing market state or a
 sizing factor above 1.0.
 
-Thresholds are measured, not invented — `python -m afterbell.calibrate`
+Thresholds are measured, not invented — `.venv/bin/python -m afterbell.calibrate`
 publishes the table with a sample count beside every number, and reports
 `UNCALIBRATED` rather than printing a statistic it lacks the samples for.
+The signed policy currently remains `status: UNCALIBRATED` pending manual
+threshold review; the CLI, planner, and authorization issuer refuse to create
+an actionable authorization until the status is explicitly `CALIBRATED`.
 
 Yahoo is the default reference-price provider and needs no credential. Alpaca
 can be selected for reference prices with `REFERENCE_PROVIDER=alpaca`, but it
@@ -153,13 +157,13 @@ Alpaca credential.
 The D5/P7 aggregate exposure check uses signed USDT net-position notionals from
 a supported client. Positive values are long, negative values are short, and
 all symbols count toward the gross ceiling. Snapshots are Ed25519-verified and
-must be no older than snapshot_max_age_s; the receipt stores only the snapshot
-digest and source, not raw positions. The shipped policy remains read-only with
-require_snapshot false because this VPS has no trusted position key or live
-position feed. An executable policy must set require_snapshot true and
-configure position_public_key. Configure and verify that key and the live
-signed snapshot publisher before funding the connected account; the activation
-runbook is [`docs/position-input.md`](docs/position-input.md).
+must be no older than `snapshot_max_age_s`; the receipt stores only the snapshot
+digest and source, not raw positions. The deployed policy sets
+`exposure.require_snapshot: true`, so an actionable evaluation without a fresh
+snapshot is fail-closed even while `executor.enabled: false`. Read-only
+market-state calls do not need a position snapshot. A future publisher still
+needs a supported unattended authentication path; the activation runbook is
+[`docs/position-input.md`](docs/position-input.md).
 
 The public MCP surface has a separate resource bound from the safety policy.
 The deployed implementation caps batches at 20 messages, charges request work

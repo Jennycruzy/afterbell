@@ -28,8 +28,9 @@ BASE = load()
 WHEN = datetime(2026, 9, 2, 15, 0, tzinfo=timezone.utc)
 
 
-def enabled_policy(tmp_path, **over):
+def enabled_policy(tmp_path, *, status="CALIBRATED", **over):
     raw = copy.deepcopy(BASE.raw)
+    raw["status"] = status
     raw["executor"] = {"enabled": True, "max_order_usdt": 25.0,
                        "symbols": ["NVDABUSDT"],
                        "require_manual_invocation": True}
@@ -92,6 +93,13 @@ def test_disabled_by_default_in_the_shipped_policy():
     req, d = decide(BASE)
     with pytest.raises(ExecutionRefused, match="disabled in policy"):
         plan(d, req, BASE)
+
+
+def test_uncalibrated_policy_cannot_make_an_execution_plan(tmp_path):
+    pol = enabled_policy(tmp_path, status="UNCALIBRATED")
+    req, d = decide(pol)
+    with pytest.raises(ExecutionRefused, match="CALIBRATED"):
+        plan(d, req, pol)
 
 
 def test_hand_set_cap_binds_below_what_the_guard_permitted(tmp_path):

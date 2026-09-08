@@ -1,9 +1,9 @@
 # AFTERBELL — build status
 
-Updated **2026-09-07 UTC**. This file separates code that is built from
+Updated **2026-09-08 UTC**. This file separates code that is built from
 external facts that still need an account holder or destination.
 
-The detailed continuation handoff is intentionally local-only and untracked; this file records the public status.
+The detailed continuation handoff is tracked with the repository and records the public status and external blockers.
 
 ## Running unattended right now
 
@@ -20,7 +20,9 @@ The recorder, dashboard and guard never load the Convex `.env`, so an Agent OS
 OAuth token cannot stop or enter the market-data process. The guard's separate
 mode-600 environment contains only the read-only Alpaca reference credentials.
 The executor is never invoked by a service and the shipped policy has
-`executor.enabled: false`.
+`executor.enabled: false`. The policy also remains `status: UNCALIBRATED`; the
+CLI and authorization issuer reject authorization issuance on that status, even
+if a deliberate demo policy enables the executor.
 
 The dashboard listens only on loopback; nginx is the sole public entrypoint.
 HTTPS is live at `afterbell.site` and `www.afterbell.site`, with automatic
@@ -33,7 +35,8 @@ certificate renewal. TCP 8100 is not allowed through UFW.
   `exchangeInfo` status, Yahoo regular-session reference data, and gap markers
 - Market clock and `REFERENCE_AGE` over the checked-in 2026 calendar
 - Measurements: spread, ±1% depth, walk cost, basis, RTH-only baselines
-- Policy loader and monotone seven-check safety evaluator with signed policy SHA
+- Policy loader and monotone seven-check safety evaluator with signed policy SHA;
+  every authorization path also requires an explicit `CALIBRATED` policy status
 - D5/P7 aggregate exposure ceiling: signed, fresh position snapshots cap
   gross net-position exposure across symbols; executable policies require this
   input
@@ -98,22 +101,19 @@ certificate renewal. TCP 8100 is not allowed through UFW.
 ## Calibration
 
 The latest generated table is in `docs/calibration.md` and the README. At
-2026-09-05 13:50 UTC it contained 17,965 measured books, 14,135 reference prints,
-**781 RTH_OPEN samples per symbol out of 300 required**, and a first full weekend
-closure at **827 CLOSED_WEEKEND samples per symbol**. All five baseline medians
-are measured and usable inside the declared rolling seven-day window.
+2026-09-08 09:11 UTC it contained 38,185 measured books and 34,345 reference
+prints, **781 RTH_OPEN samples per symbol out of 300 required**, and **1,440
+CLOSED_HOLIDAY samples per symbol**. All five baseline medians are measured and
+usable inside the declared rolling seven-day window.
 
-Basis is now measured across five market states rather than three. Regular
-trading disagreement is far tighter than the live bands assume — RTH_OPEN
-p75/p95/p99 at 7.1/12.6/33.9 bps against live WATCH/DEGRADED/BROKEN bands of
-100/250/500 bps — while `RTH_PRE` is the widest state at a p99 of 537.6 bps.
-That spread between states is the argument for keeping the bands measured
-rather than round.
+Basis is measured across six observed market states. The `RTH_OPEN`
+p75/p95/p99 remains 7.1/12.6/33.9 bps against live WATCH/DEGRADED/BROKEN bands
+of 100/250/500 bps; the holiday rows are now measured rather than inferred.
 
-The signed policy remains `status: UNCALIBRATED` because its market-closure, liquidity, and price-disagreement thresholds
-are still hypotheses; no threshold was silently promoted. `CLOSED_HOLIDAY` is
-the one state never yet observed; it records on Labor Day, 2026-09-07. Add that
-observation, then review the proposed values manually before changing policy.
+The generated report is `CALIBRATED` in the sample-coverage sense: every
+symbol has the required RTH baseline. The signed policy remains
+`status: UNCALIBRATED` because manual review has not yet promoted its
+market-closure, liquidity, or price-disagreement thresholds. This is an intentional safety hold, not a data-completeness claim.
 
 The calibration command is reproducible and never edits live policy:
 
@@ -138,16 +138,16 @@ The calibration command is reproducible and never edits live policy:
 
 ## Remaining gaps
 
-1. **D7 Skills Hub PR:** not opened.
-2. **D11 video and submission mechanics:** not started.
-3. **D6 corporate-action lookahead:** Binance current processing status is
-   authoritative but does not guarantee advance notice; Alpaca reference
-   validation is configured, not an independent corporate-action source.
-4. **D8 Square publishing:** awaits Creator Center API key.
-5. **D9 counterparty comparison:** continue the corrected post-fix sample
-   through an even regular-hours/closure comparison.
-6. **Calibration:** `CLOSED_HOLIDAY` and manual threshold review remain before
-   changing the signed policy from `UNCALIBRATED`.
+Track the submission handoff in [`docs/submission-checklist.md`](docs/submission-checklist.md).
+
+1. **Calibration review:** `CLOSED_HOLIDAY` is now measured (1,440 samples per symbol); a human must review the proposed thresholds before the signed policy can leave `UNCALIBRATED`.
+2. **Backup/storage:** live Google Drive copy and stable-data verification passed at 2026-09-08 08:43 UTC, covering through 2026-09-07. The 14-day retention policy is implemented and isolated-test-covered; no production archive is old enough to have been pruned yet.
+3. **Unattended signed snapshots:** a supported-client authentication path is still needed for safe, unattended position-snapshot publishing.
+4. **D7 Skills Hub PR:** not opened.
+5. **D11 video and submission mechanics:** not started.
+6. **D8 Square publishing:** awaits Creator Center API key.
+7. **D9 counterparty comparison:** continue the corrected post-fix sample through an even regular-hours/closure comparison.
+8. **D6 corporate-action lookahead:** Binance current processing status is authoritative but does not guarantee advance notice; Alpaca reference validation is configured, not an independent corporate-action source.
 
 ## Known limitations
 
@@ -158,6 +158,7 @@ The calibration command is reproducible and never edits live policy:
   bStock funding/jurisdiction eligibility and a real order remain unproven.
 - The public token audit does not support bStocks, so contract verification's live fallback is the
   canonical registry alone.
+- Backup/storage is live-verified but not transactional. The recorder is producing roughly 3.9 GB of raw data at this audit point. The 2026-09-08 08:43 UTC run used the service-writable rclone config, copied stable data, and passed `rclone check` through 2026-09-07. The job skips hot files and only prunes raw archives after an exact remote check at the 14-day boundary; no production archive has reached that boundary yet. This verifies a stable remote set, not an atomic point-in-time snapshot. The watchdog now treats missing, failed, or older-than-two-hours backup status as unhealthy. External alerting still needs its own transition proof. Credentials remain outside Git.
 - The current box is in AWS eu-west-1 rather than the Tokyo region recommended
   by the build spec. Public REST currently passes, but that is not a guarantee
   for future Binance or Agent OS access.
@@ -166,8 +167,9 @@ The calibration command is reproducible and never edits live policy:
 
 ## Next automatic milestones
 
-- The Friday bell and the weekend closure are recorded. Keep the recorder
-  running through the Labor Day closure and the Tuesday reopen; those states
-  cannot be back-filled.
-- Re-run calibration after Labor Day, inspect proposed policy values manually,
-  and only then decide whether the policy can be marked calibrated.
+- Review the proposed threshold values against the captured holiday sample; do
+  not promote them automatically, and keep execution disabled while the signed
+  policy is `UNCALIBRATED`.
+- Keep the hourly backup and watchdog timers active; inspect the next status
+  record and exercise production retention only when an archive reaches 14 days.
+- Complete the corrected counterparty sample and the external submission work.
