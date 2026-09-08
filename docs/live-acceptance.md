@@ -33,6 +33,13 @@ spending 5.00 USDT, accepting the weekend-reference warning and fees.
 - Fee: `0.000021 NVDAB`
 - Authorization nonce: consumed and finalized
 - Child receipt hash: `06b4a0e9927ddfe630aa4e28390c3e85e17e357bc4b51a04c05f80a1a83c48d5`
+- Child receipt sequence: `4480`, record kind `authorization_redeemed`
+- Redeemed by: `codex-binance-agent-os` — the `placed_by` field on that record,
+  naming the supported client that submitted it. AFTERBELL issued the
+  authorization; it did not submit the order and holds no venue credential.
+- Recorded side by side on that record: requested `5.00`, permitted `5.00`,
+  placed `4.86192`. The placed figure is read back from the venue response
+  rather than copied from the permitted amount, so the three can be compared.
 
 The post-trade account check reported `0.020979 NVDAB` and
 `5.68314309 USDT` free. A fresh signed post-trade report measured gross

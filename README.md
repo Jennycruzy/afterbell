@@ -7,8 +7,8 @@ always-open token market, compares it with the hours and condition of the
 underlying stock market, and gives an agent a defensible maximum order size.
 
 It does not predict prices. It does not choose trades. It does not hold an
-exchange credential. It makes the dangerous moments visible and makes unsafe
-size impossible to approve by accident.
+exchange credential. It makes the dangerous moments visible, and through its
+own governed handoff it makes unsafe size impossible to approve by accident.
 
 Built for the **Binance Agent OS Mini Hackathon, Track A**.
 
@@ -62,7 +62,6 @@ owns exactly one thing:
     client redeems. That is the governed handoff below, not a value
     these read-only tools return.
 ```
-```
 
 The agent owns intent. AFTERBELL owns the deterministic limit. Agent OS owns
 authenticated execution. No party does another's job, and the limit is decided
@@ -92,9 +91,11 @@ dashboard shows the current order limit and cannot place an order.
 ## Connect your AI agent
 
 AFTERBELL is a peer on the protocol, not an adapter for one product. Any
-MCP-capable agent can connect to AFTERBELL and to Binance Agent OS at the same
-time, ask AFTERBELL what size is defensible, and restrict its Agent OS order to
-the ceiling that comes back. That last step is the agent's to honour: AFTERBELL
+MCP-capable agent can use it — there is no SDK, no plugin, and no client this
+side requires. Pair it with Binance Agent OS in the same client, ask AFTERBELL
+what size is defensible, and restrict the Agent OS order to the ceiling that
+comes back. Whatever a client needs in order to talk to Binance is Binance's
+requirement, not AFTERBELL's; nothing here narrows which agent you bring. That last step is the agent's to honour: AFTERBELL
 governs its own handoff, not somebody else's credential.
 
 The endpoint carries no account credential and has no execution capability. A
