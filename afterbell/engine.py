@@ -25,6 +25,7 @@ import httpx
 from afterbell import baselines as bl
 from afterbell.clock import evaluate as clock_at
 from afterbell.guard import (
+    CHECK_NAMES,
     Decision, MarketContext, OrderRequest, evaluate as guard_evaluate,
     to_receipt,
 )
@@ -359,7 +360,8 @@ def render(d: Decision) -> str:
         "",
     ]
     for g in d.gates:
-        lines.append(f"    {g.name}  {g.verdict.value:6}  f={g.factor:5.3f}  {g.detail}")
+        label = CHECK_NAMES.get(g.name, g.name)
+        lines.append(f"    {label:<20}{g.verdict.value:6}  f={g.factor:5.3f}  {g.detail}")
     lines += [
         "",
         f"  DECISION  {d.verdict.value}    requested {d.requested_notional:,.0f} "
