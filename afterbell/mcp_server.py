@@ -42,7 +42,7 @@ from typing import Any
 
 from afterbell.clock import format_age
 from afterbell.engine import Guard
-from afterbell.guard import OrderRequest
+from afterbell.guard import CHECK_NAMES, OrderRequest
 from afterbell.positions import PositionSnapshotError, parse as parse_position_snapshot
 from afterbell.measure import Side
 from afterbell.policy import Policy, load as load_policy
@@ -407,8 +407,11 @@ def evaluate_order(args: dict[str, Any]) -> dict[str, Any]:
         "reference_age": (None if ctx.reference_age_s is None
                           else format_age(ctx.reference_age_s)),
         "reference_age_s": ctx.reference_age_s,
-        "checks": {g.name: {"verdict": g.verdict.value, "detail": g.detail}
-                   for g in d.gates},
+        "binding_check": (None if not d.binding_constraint else
+                          ", ".join(CHECK_NAMES.get(c, c) for c
+                                    in d.binding_constraint.split(","))),
+        "checks": {CHECK_NAMES.get(g.name, g.name): {
+            "verdict": g.verdict.value, "detail": g.detail} for g in d.gates},
         "policy_sha256": d.policy_sha256,
         "receipt_seq": (guard.last_receipt or {}).get("seq"),
         "receipt_hash": (guard.last_receipt or {}).get("hash"),

@@ -22,6 +22,7 @@ from afterbell.clock import (
     MarketState, evaluate as clock_at, format_age, last_rth_close,
 )
 from afterbell.instruments import REGISTRY, TOKEN_SYMBOLS, registry_sha256
+from afterbell.guard import CHECK_NAMES
 from afterbell.ledger import head_of
 from afterbell.measure import (Book, Side, basis_bps, depth_within,
                                half_spread_bps, walk_cost_bps)
@@ -202,10 +203,7 @@ def _receipts(limit: int = 40) -> list[dict]:
 
 
 
-_PUBLIC_CHECK_NAMES = (
-    "Market timing", "Liquidity", "Price agreement", "Corporate actions",
-    "Instrument identity", "Contract address", "Account exposure",
-)
+_PUBLIC_CHECK_NAMES = tuple(CHECK_NAMES.values())
 _PUBLIC_DECISIONS = {
     "PASS": "Clear", "WARN": "Caution", "REDUCE": "Smaller size",
     "BLOCK": "Blocked", "OK": "Healthy", "FAILED": "Failed",

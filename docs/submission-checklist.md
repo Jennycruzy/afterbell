@@ -29,8 +29,10 @@ actions that still need an outside destination.
 
 ## Outside submission work
 
-- [ ] Open the Skills Hub pull request in the required destination and report it
-  as opened until the destination confirms its status.
+- [x] Skills Hub pull request opened:
+  [binance/binance-skills-hub#337](https://github.com/binance/binance-skills-hub/pull/337).
+  It is open and awaiting review; it is not merged, and it is reported as
+  opened rather than accepted until that destination says otherwise.
 - [ ] Record the public dashboard, public MCP surface, backup
   evidence, and the existing minimum-size acceptance record for the video and
   submission portal.

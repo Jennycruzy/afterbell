@@ -116,6 +116,40 @@ The report contains signed USDT notionals, not credentials. The raw positions
 are not written into public receipts; only the report identity and verification
 result are retained.
 
+## What the permitted size is, and what it binds
+
+A request meets four ceilings, and each one can only lower the number:
+
+```text
+the agent asks                            5,000 USDT   base_notional_usdt
+the market checks decide                  measured     timing, liquidity, price,
+                                                       status, identity, address
+account-risk ceiling                        100 USDT   exposure.max_gross_usdt
+signed execution ceiling                     25 USDT   executor.max_order_usdt
+```
+
+The agent asking for 5,000 does not mean 5,000 can move. The account-risk
+ceiling is how much certificate exposure this deployment is willing to
+accumulate at all; the execution ceiling is a separate number chosen by hand so
+that a mistake anywhere in the sizing chain is still bounded. Both are stored in
+the signed settings file whose SHA-256 is written into every receipt, so a
+limit that moved is visible in the evidence rather than only in the code.
+
+**What the authorization binds, precisely.** AFTERBELL signs a short-lived,
+single-use authorization and records it. A supported client transcribes that
+artifact and submits exactly what it permits, and the redemption record carries
+requested, permitted and actually-spent side by side, read back from the venue
+response rather than assumed.
+
+What that does **not** mean: the venue's own MCP server does not verify
+AFTERBELL's signature, and the OAuth session belongs to the supported client,
+not to this package. A client that ignored AFTERBELL could call its own trading
+tool directly. So the guarantee is about the governed handoff — *that path never
+produces an order larger than AFTERBELL permitted, and the ledger shows what was
+actually spent* — and not a cryptographic restriction on every action available
+to the client's credential. Binding that credential would mean holding it, which
+is the one thing this package refuses to do.
+
 ## Why the design is trustworthy
 
 - **Deterministic:** measurements and decisions are produced by ordinary code,

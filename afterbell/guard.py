@@ -40,6 +40,20 @@ from afterbell.policy import Policy
 from afterbell.resolver import ContractCheck, Resolution
 
 
+# The plain-language name of each check, in the order they are applied. The
+# guard works in short ids; every surface that shows a result to a person shows
+# these instead, and they are defined once here so the two cannot drift apart.
+CHECK_NAMES = {
+    "P1": "Market timing",
+    "P2": "Liquidity",
+    "P3": "Price agreement",
+    "P4": "Corporate actions",
+    "P5": "Instrument identity",
+    "P6": "Contract address",
+    "P7": "Account exposure",
+}
+
+
 class Verdict(str, Enum):
     PASS = "PASS"
     WARN = "WARN"

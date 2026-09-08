@@ -83,7 +83,8 @@ prediction about the token price.
    and closure comparison.
 2. Provide a supported unattended authentication path for signed account
    reports; never move interactive OAuth into Python or a daemon.
-3. Complete the external Skills Hub, video, and submission steps.
+3. Complete the video and submission steps. The Skills Hub pull request is
+   open at binance/binance-skills-hub#337 and awaiting review.
 4. Document the limitation that current venue status does not guarantee future
    corporate-action notice.
 

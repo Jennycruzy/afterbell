@@ -28,6 +28,29 @@ DEFAULT_LEDGER = ROOT / "data" / "receipts.jsonl"
 DEFAULT_PUBKEY = ROOT / "config" / "authorization.pub"
 
 
+def placed_notional(response: dict) -> float:
+    """What the venue says was actually spent, never what we hoped it spent.
+
+    The redemption record puts requested, permitted and placed side by side so
+    the three can be compared. Copying the permitted amount into the placed
+    field would make that comparison vacuous and would defeat the
+    placed-exceeds-permitted check downstream, so the number is read from the
+    venue response or the finalize is refused. Binance spells the field
+    `cummulativeQuoteQty`; the correct spelling is accepted too.
+    """
+    for key in ("cummulativeQuoteQty", "cumulativeQuoteQty"):
+        if key in response:
+            try:
+                return float(response[key])
+            except (TypeError, ValueError):
+                raise AuthorizationError(
+                    f"venue response has an unreadable {key}: "
+                    f"{response[key]!r}") from None
+    raise AuthorizationError(
+        "venue response carries no cummulativeQuoteQty, so the amount actually "
+        "spent cannot be measured; refusing to record an assumed one")
+
+
 def placement_manifest(auth):
     """Exact credential-free arguments a supported MCP client may submit."""
     return {
@@ -89,8 +112,13 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         order_id = str(response.get("orderId") or response.get("order_id") or "")
         try:
+            spent = placed_notional(response)
+        except AuthorizationError as exc:
+            print(f"REFUSED: {exc}", file=sys.stderr)
+            return 2
+        try:
             written = Ledger(args.ledger).append_once(
-                redemption_record(auth, placed_notional=auth.permitted_notional,
+                redemption_record(auth, placed_notional=spent,
                                   order_id=order_id or None, venue_response=response,
                                   placed_by=args.placed_by),
                 field="nonce", value=auth.nonce,
@@ -98,8 +126,9 @@ def main(argv: list[str] | None = None) -> int:
         except RuntimeError:
             print("REFUSED: authorization was already finalized", file=sys.stderr)
             return 2
-        print(f"finalized order_id={order_id or 'unknown'} receipt "
-              f"seq={written['seq']} hash={written['hash'][:16]}")
+        print(f"finalized order_id={order_id or 'unknown'} "
+              f"placed={spent:.8f} of {auth.permitted_notional:.2f} permitted "
+              f"receipt seq={written['seq']} hash={written['hash'][:16]}")
         return 0
 
     if not args.prepare:
