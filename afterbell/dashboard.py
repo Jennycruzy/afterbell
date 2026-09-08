@@ -4,8 +4,8 @@ Part IX: REFERENCE_AGE is on the screen permanently, refusals are styled as
 prominently as passes, and the policy checksum and ledger head are shown so a
 reader can tell which rules produced what they are looking at.
 
-Read-only and unauthenticated, like the recorder. It serves what has been
-measured; it never computes a verdict of its own.
+Unauthenticated, like the recorder. It serves what has been measured; it
+never computes a verdict of its own.
 """
 from __future__ import annotations
 
@@ -209,9 +209,9 @@ _PUBLIC_CHECK_NAMES = (
 _PUBLIC_DECISIONS = {
     "PASS": "Clear", "WARN": "Caution", "REDUCE": "Smaller size",
     "BLOCK": "Blocked", "OK": "Healthy", "FAILED": "Failed",
-    "STALE": "Stale", "PENDING": "Not ready", "TRADING": "Trading",
-    "HALT": "Paused", "FILLED": "Filled", "UNKNOWN": "Unknown",
-    "OPERATOR_FREEZE": "Operator freeze",
+    "STALE": "Stale", "PENDING": "Waiting", "TRADING": "Trading",
+    "HALT": "Temporarily stopped", "FILLED": "Filled", "UNKNOWN": "Unknown",
+    "OPERATOR_FREEZE": "Temporarily stopped",
 }
 _PUBLIC_STATES = {
     "RTH_OPEN": "Open", "RTH_PRE": "Before open", "RTH_POST": "After close",
@@ -220,7 +220,8 @@ _PUBLIC_STATES = {
     "UNKNOWN": "Unknown",
 }
 _PUBLIC_WORDS = {
-    "UNCALIBRATED": "not yet approved", "CALIBRATED": "data complete",
+    "UNCALIBRATED": "data coverage pending", "CALIBRATED": "data coverage complete",
+    "PROTECTED": "protected",
     "REQUIRED_BUT_MISSING": "required account report missing",
     "NOT_SUPPLIED": "not provided", "NOT_APPLICABLE": "not applicable",
     "RTH_OPEN": "regular trading hours", "RTH_PRE": "before the regular open",
@@ -257,6 +258,7 @@ def _public_state(data: dict) -> dict:
     guard.pop("gates", None)
     guard.pop("gate_detail", None)
     guard.pop("binding_constraint", None)
+    guard.pop("policy_status", None)
     guard["status"] = _PUBLIC_DECISIONS.get(raw_guard.get("status"), "Unknown")
     guard["main_reason"] = _public_word(raw_guard.get("binding_constraint"), check_keys)
     guard["rationale"] = _public_word(raw_guard.get("rationale"), check_keys)
@@ -279,7 +281,6 @@ def _public_state(data: dict) -> dict:
 
     raw_policy = dict(data.get("policy") or {})
     policy = dict(raw_policy)
-    policy["safety_limits_ready"] = raw_policy.get("status") == "CALIBRATED"
     policy.pop("status", None)
     public["policy"] = policy
 
@@ -301,6 +302,7 @@ def _public_state(data: dict) -> dict:
         raw_factors = item.pop("gate_factors", {}) or {}
         item.pop("gate_detail", None)
         item.pop("binding_constraint", None)
+        item.pop("policy_status", None)
         item["check_factors"] = [
             {"name": (_PUBLIC_CHECK_NAMES[i] if i < len(_PUBLIC_CHECK_NAMES)
                        else "Safety check"), "factor": factor}

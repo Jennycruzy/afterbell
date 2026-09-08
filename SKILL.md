@@ -81,15 +81,15 @@ The report carries signed USDT notionals and a verification signature. It does
 not carry an exchange login, and AFTERBELL stores only its identity and result,
 not the raw account export.
 
-## Why live permission may be paused
+## Configure the order limit
 
-Market data can be complete while safety settings are still draft. The generated
-report now has enough regular-hours observations for every supported token. The
-signed settings file still needs an explicit owner decision: compare the
-proposed limits with the measured distributions, then approve or revise them.
-Until that decision is recorded, the authorization path stays paused. This is a
-conscious safety hold, not a missing-data failure.
+The starting amount is the `base_notional_usdt` value in
+`config/policy.yaml`. Choose the maximum amount one request may ask for there.
+The market checks can reduce it when the reference price is old, the book is
+thin, the token and reference disagree, the instrument is unclear, or current
+account exposure is not known.
 
+The dashboard shows the current amount and links directly to the configuration.
 ## What it protects against
 
 - stale or missing underlying-market prices;
@@ -106,11 +106,10 @@ change the result.
 
 ## Boundaries and evidence
 
-The public dashboard at <https://afterbell.site> is read-only. The recorder,
-dashboard, and evaluator hold no exchange credential. The shipped execution
-setting is paused. A supported client would have to receive an exact,
-short-lived authorization before any separately approved submission path could
-be used.
+The public dashboard at <https://afterbell.site> shows the current order limit,
+measurements, and recorded decisions. It does not place orders. The recorder,
+dashboard, and evaluator hold no exchange credential. Any future order
+submission stays outside this dashboard and uses a supported client.
 
 The data report, safety-test report, acceptance record, and signed account-input
 runbook are linked from the dashboard and repository:

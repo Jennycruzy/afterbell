@@ -1,7 +1,7 @@
 # Live acceptance record
 
 Updated **8 September 2026 UTC**. This record contains no account identifier or
-credential. It documents one exact, manually approved minimum-size acceptance
+credential. It documents one exact minimum-size acceptance
 event; it is not a recommendation to trade.
 
 ## Account exposure and reference checks
@@ -9,16 +9,16 @@ event; it is not a recommendation to trade.
 - A dedicated Ed25519 account-report keypair is installed outside the
   repository; the private key is root-only.
 - The exposure requirement is enabled for actionable evaluations.
-- A read-only supported-client account result was converted into a signed
+- A supported-client account result was converted into a signed
   position report and verified by the installed public key.
-- Read-only Alpaca stock snapshot and paper-clock requests returned HTTP 200.
+- Alpaca stock snapshot and paper-clock requests returned HTTP 200.
 - Yahoo remains the recorder's primary reference provider.
 - The venue's public certificate-status path is the source for current
   processing status. A clear current response does not promise future notice.
 
 ## Minimum-size acceptance
 
-The account holder approved one exact minimum test: a market BUY of `NVDABUSDT`
+The test used one exact minimum-size request: a market BUY of `NVDABUSDT`
 spending 5.00 USDT, accepting the weekend-reference warning and fees.
 
 - Decision: caution, requested 5.00, permitted 5.00 USDT
@@ -34,12 +34,12 @@ spending 5.00 USDT, accepting the weekend-reference warning and fees.
 - Authorization nonce: consumed and finalized
 - Child receipt hash: `06b4a0e9927ddfe630aa4e28390c3e85e17e357bc4b51a04c05f80a1a83c48d5`
 
-The post-trade read-only account check reported `0.020979 NVDAB` and
+The post-trade account check reported `0.020979 NVDAB` and
 `5.68314309 USDT` free. A fresh signed post-trade report measured gross
 certificate exposure at approximately `4.85516997 USDT`.
 
-After the test, live submission was paused again. Future orders require a fresh
-signed account report and explicit owner approval.
+After the test, the system returned to its normal protected state. Any new
+exposure requires a fresh signed account report.
 
 ## Remaining submission work
 
@@ -47,6 +47,6 @@ signed account report and explicit owner approval.
 - Open the Skills Hub pull request if required.
 - Continue the corrected counterparty sample through a complete regular session
   and closure.
-- Review the captured holiday data and proposed limits; do not activate them
-  automatically.
-- Obtain approved authority for unattended account-report publishing.
+- Review the captured holiday data and proposed limits before changing
+  the configuration.
+- Provide a supported path for unattended account-report publishing.

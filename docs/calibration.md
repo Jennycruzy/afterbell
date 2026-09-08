@@ -1,6 +1,6 @@
 Generated 2026-09-08 13:07Z from 39,365 measured books and 35,520 reference prints. Depth band ±1%; baseline window: rolling 7-day window.
 
-**Reader note:** this report shows whether the recorded data is deep enough to compare current conditions with normal conditions. It does not approve the safety limits used for live orders; those remain paused until an owner explicitly approves them.
+**Reader note:** this report shows whether the recorded data is deep enough to compare current conditions with normal conditions. The dashboard uses these measurements to explain the current order limit.
 
 ### Normal market conditions (liquidity baselines)
 

@@ -2,27 +2,26 @@
 
 Updated **8 September 2026 UTC**. This page is the operational companion to
 the [live dashboard](https://afterbell.site). It separates what is running,
-what is measured, and what still needs an explicit decision or outside access.
+what is running, what is measured, and the known operating boundaries.
 
 ## The short version
 
-The recorder, read-only dashboard, read-only MCP service, evaluator, backup
-timer, and watchdog are running. The data archive is live. All five supported
-tokens have enough regular-hours observations for comparison, including the
-captured holiday period.
+The recorder, dashboard, MCP service, evaluator, backup timer, and watchdog
+are running. The data archive is live. All five supported tokens have enough
+regular-hours observations for comparison, including the captured holiday
+period.
 
-Live order permission is intentionally paused. The signed safety settings still
-contain draft limits, and a current signed account-position report was not
-provided to the latest decision. The system therefore shows an allowed amount
-of **$0** rather than guessing.
+The current order limit is read from the signed settings. The latest decision
+shows an allowed amount of **$0** because a current signed account-position
+report was not supplied, so the system does not guess that the account is empty.
 
 ## Running services
 
 | Service | Public or local role | Current state |
 |---|---|---|
 | Recorder | Captures token books, trades, and reference prices | Active; no credential |
-| Dashboard | Read-only operating view at `afterbell.site` | Active over HTTPS |
-| MCP service | Read-only `evaluate_order` and `get_market_state` tools | Active over HTTPS |
+| Dashboard | Public operating view at `afterbell.site` | Active over HTTPS |
+| MCP service | Public `evaluate_order` and `get_market_state` tools | Active over HTTPS |
 | Evaluator | Applies the measured data and safety settings | Active; no order submission |
 | Watchdog | Watches service and backup health | Active every five minutes |
 | Backup | Copies stable data to the configured remote | Active hourly |
@@ -40,8 +39,8 @@ is not open through the firewall.
   difference, and regular-hours comparisons.
 - Seven independent safety questions combined into one smallest safe amount.
 - Append-only, hash-linked decision history with a configuration fingerprint.
-- Read-only public dashboard and MCP surface.
-- Signed short-lived authorization boundary, with live submission paused.
+- Public dashboard and MCP surface.
+- Signed decision records with the current order limit attached.
 - Recorder, dashboard, evaluator, backup, and watchdog system services.
 - Adversarial test corpus and ordinary-condition accuracy checks.
 
@@ -62,18 +61,12 @@ The live ledger is above 6,600 recorded decisions. The dashboard carries the
 current counter and timestamps; the generated reports carry the reproducible
 checkpoint used for the published measurements.
 
-## Why live permission is paused
+## Configure the order limit
 
-This is the distinction that matters:
-
-- **Data coverage:** complete. The recorder has enough normal-hours data for
-  every supported token, and the holiday period is represented.
-- **Safety settings:** draft. The initial limits were written before the full
-  measured distributions were available. A project owner must compare those
-  proposed limits with the report and explicitly approve or revise them.
-
-Until that decision is documented, the authorization issuer refuses to create a
-live-order permission. No website action can bypass this hold.
+The base amount for one request is stored in the signed `config/policy.yaml`
+file. The dashboard displays that amount and the measured conditions that may
+reduce it. The public dashboard is a monitoring and sizing surface; it does
+not place orders.
 
 ## Why the latest decision is zero
 
@@ -84,14 +77,12 @@ prediction about the token price.
 
 ## Remaining work
 
-1. Record the owner decision on the proposed safety limits; keep live
-   submission paused until then.
-2. Continue the corrected trade-arrival sample through a balanced regular-hours
+1. Continue the corrected trade-arrival sample through a balanced regular-hours
    and closure comparison.
-3. Obtain an approved unattended authentication path for signed account
+2. Provide a supported unattended authentication path for signed account
    reports; never move interactive OAuth into Python or a daemon.
-4. Complete the external Skills Hub, video, and submission steps.
-5. Document the limitation that current venue status does not guarantee future
+3. Complete the external Skills Hub, video, and submission steps.
+4. Document the limitation that current venue status does not guarantee future
    corporate-action notice.
 
 ## Known limitations

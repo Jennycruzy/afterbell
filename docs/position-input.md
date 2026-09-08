@@ -3,7 +3,7 @@
 AFTERBELL does not hold exchange credentials or fetch private account positions.
 Before allowing new exposure, it accepts only a short-lived, signed report
 produced by the root-operated balance reporter from a supported client's
-read-only account export.
+account export.
 
 The purpose is straightforward: the evaluator must know what the account
 already holds across all supported tokens before it can safely add more. If the
@@ -16,7 +16,7 @@ report is absent, stale, unsigned, or altered, new exposure is refused.
    it, reuse an exchange key, or pass an OAuth token to Python.
 2. Install the public key as `/etc/afterbell/position.pub`, owned by `root:root`
    and mode `0644`. Verify its fingerprint with the account holder out of band.
-3. Call the supported client's read-only account tool and save an evidence
+3. Call the supported client's account tool and save an evidence
    envelope with the exact result and capture time:
 
    ```json
@@ -48,20 +48,20 @@ report is absent, stale, unsigned, or altered, new exposure is refused.
    long and negative is net short. Every supported symbol counts toward the
    gross exposure limit.
 
-6. Submit a harmless read-only evaluation with the report. Confirm the receipt
+6. Submit a harmless evaluation with the report. Confirm the receipt
    says the account evidence was verified and includes its digest, source, age,
    and gross exposure. A stale, future, unsigned, or incorrectly signed report
    must be refused.
 7. Restart and verify the evaluator and MCP services after key or settings
-   changes. Keep any funded test separate and explicitly approved.
+   changes. Keep any funded test separate from this evidence flow.
 
 ## Current deployment
 
 The deployed settings require this account report for actionable evaluations,
-while live submission remains paused. The public dashboard explains a missing
+while this build does not submit orders. The public dashboard explains a missing
 report as **required account report missing** and shows why the allowed amount
-is zero. Read-only market-state calls do not need private account evidence.
+is zero. Market-state calls do not need private account evidence.
 
-A future unattended publisher still needs approved supported-client
-authentication. Do not move interactive OAuth into Python, a daemon, or this
+A future unattended publisher still needs a supported-client authentication
+path. Do not move interactive OAuth into Python, a daemon, or this
 repository.

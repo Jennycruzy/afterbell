@@ -289,7 +289,7 @@ def render_table(cal: Calibration, min_rth: int = 300) -> str:
              f"reference prints. Depth band ±{cal.band_pct:g}%; "
              f"baseline window: {window}.")
     L.append("")
-    L.append("**Reader note:** this report shows whether the recorded data is deep enough to compare current conditions with normal conditions. It does not approve the safety limits used for live orders; those remain paused until an owner explicitly approves them.")
+    L.append("**Reader note:** this report shows whether the recorded data is deep enough to compare current conditions with normal conditions. The dashboard uses these measurements to explain the current order limit.")
     L.append("")
     L.append("### Normal market conditions (liquidity baselines)")
     L.append("")

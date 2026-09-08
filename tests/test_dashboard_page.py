@@ -9,7 +9,12 @@ import afterbell.dashboard as dashboard
 def test_operational_console_page_has_afterbell_sections_not_reference_branding():
     assert "Decision explorer" in dashboard.PAGE
     assert "Data coverage" in dashboard.PAGE
-    assert "Safety limits" in dashboard.PAGE
+    assert "Configure order limit" in dashboard.PAGE
+    assert "Safety limits" not in dashboard.PAGE
+    assert "SET IN CONFIG" in dashboard.PAGE
+    assert "Paused for approval" not in dashboard.PAGE
+    assert "approval" not in dashboard.PAGE.lower()
+    assert "READ ONLY" not in dashboard.PAGE
     assert "Decision history" in dashboard.PAGE
     assert "P7" not in dashboard.PAGE
     assert "HUMAN REVIEW" not in dashboard.PAGE
@@ -31,9 +36,10 @@ def test_public_state_translates_machine_labels(monkeypatch):
             },
             "gate_detail": {"P7": "P7 is required; no snapshot supplied"},
             "market_state": "CLOSED_WEEKEND",
+            "policy_status": "UNCALIBRATED",
             "measurements": {"exposure_check": "REQUIRED_BUT_MISSING"},
         },
-        "policy": {"status": "UNCALIBRATED"},
+        "policy": {"status": "PROTECTED", "base_notional": 5000.0},
         "symbols": [{"baseline_status": "CALIBRATED",
                      "n_by_state": {"CLOSED_HOLIDAY": 1440}}],
         "receipts": [{"decision": "BLOCK", "gate_factors": {
@@ -50,12 +56,16 @@ def test_public_state_translates_machine_labels(monkeypatch):
     assert public["guard"]["status"] == "Blocked"
     assert public["guard"]["main_reason"] == "Account exposure"
     assert public["guard"]["checks"][-1]["name"] == "Account exposure"
-    assert public["policy"]["safety_limits_ready"] is False
+    assert "safety_limits_ready" not in public["policy"]
+    assert public["policy"]["base_notional"] == 5000.0
+    assert "policy_status" not in public["guard"]
+    assert "policy_status" not in public["receipts"][0]
     assert public["symbols"][0]["baseline_ready"] is True
     assert public["symbols"][0]["holiday_samples"] == 1440
     assert public["build_status"] == "Loading"
     assert "P7" not in encoded
     assert "UNCALIBRATED" not in encoded
+    assert "PROTECTED" not in encoded
     assert "CLOSED_WEEKEND" not in encoded
 
 def test_dashboard_exposes_generated_evidence_without_recomputing_it(

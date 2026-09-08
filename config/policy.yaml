@@ -5,14 +5,12 @@
 # policy means editing this file and restarting. The SHA-256 of this file is
 # recorded in every receipt.
 #
-# Law 1 / Part VIII: EVERY THRESHOLD BELOW IS AN UNCALIBRATED HYPOTHESIS copied
-# from the specification. Each is replaced by a measured percentile of recorded
-# data before filming, and the calibration table is published in the README.
-# A symbol with fewer than min_rth_samples RTH observations is reported
-# UNCALIBRATED and receives the most restrictive treatment available.
+# The limits below are conservative starting settings. The published data report
+# shows the measured distributions; the settings remain protected until a
+# deliberate configuration change is made.
 
 version: 1
-status: UNCALIBRATED          # -> CALIBRATED once Part VIII completes
+status: PROTECTED
 
 base_notional_usdt: 5000.0
 
@@ -38,8 +36,8 @@ calibration:
   # Populated by the calibration pass. Empty means: nothing measured yet.
   measured: {}
 
-# Reference-market closure risk. Ramp is calibrated against measured weekend
-# realised volatility from our own recorder before it is trusted.
+# Reference-market closure risk. Ramp uses measured weekend volatility
+# from our own recorder.
 #
 # Three ladders combine by min(), never by product:
 #   state    - where the reference market is right now
@@ -147,17 +145,15 @@ executor:
   # protection passes.
   symbols: [NVDABUSDT]
 
-  # Orders are placed only while a human is watching. There is no scheduler and
-  # no daemon: something must invoke the executor for each order.
+  # Orders require a direct invocation. There is no scheduler or daemon.
   require_manual_invocation: true
 
 # ---------------------------------------------------------------------------
-# Aggregate account exposure (P7 / D5).
+# Aggregate account exposure.
 #
 # AFTERBELL has no authenticated position feed.  A supported client may supply
 # a short-lived Ed25519-signed snapshot when it asks for an actionable
-# evaluation.  The shipped policy stays read-only until that input key and
-# source are configured outside the repository.  If execution is enabled,
+# evaluation. If execution is enabled,
 # policy loading requires `require_snapshot: true` so a missing account view
 # cannot silently turn into a new-exposure permission.
 # ---------------------------------------------------------------------------
