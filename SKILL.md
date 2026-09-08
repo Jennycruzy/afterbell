@@ -1,10 +1,11 @@
 ---
 name: afterbell-calendar-risk
 description: >-
-  Calendar-aware safety layer for Binance bStocks (tokenized U.S. equities).
-  Use before a bStock order to compare token-market conditions with the
-  underlying market and return the largest defensible amount. It never places
-  an order.
+  Autonomous safety agent for AI agents trading Binance bStocks (tokenized U.S.
+  equities). Use before a bStock order: it compares token-market conditions with
+  the hours and condition of the underlying U.S. market and returns the largest
+  defensible amount, and it notices material safety changes on its own between
+  requests. Its limits are deterministic; it never places an order.
 license: MIT
 ---
 
@@ -12,10 +13,16 @@ license: MIT
 
 ## The idea
 
-bStocks can trade around the clock. The U.S. market that supplies their
-reference price is open for only part of the week. AFTERBELL measures that gap,
-checks the live token book, and limits new exposure when the independent price
-is old or the market is unusually difficult to trade.
+AFTERBELL is an autonomous safety agent that serves AI trading agents. bStocks
+can trade around the clock. The U.S. market that supplies their reference price
+is open for only part of the week. AFTERBELL measures that gap, checks the live
+token book, and limits new exposure when the independent price is old or the
+market is unusually difficult to trade.
+
+The trading agent owns the intent. AFTERBELL independently owns the safety
+limit. Binance Agent OS owns authenticated execution. The limits are computed by
+ordinary deterministic code: a language model may explain a result, it cannot
+choose the permitted amount or overturn a refusal.
 
 Use this skill before a bStock order. It returns the largest amount the system
 is willing to permit and a short explanation. It cannot place, amend, or cancel

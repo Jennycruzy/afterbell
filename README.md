@@ -2,13 +2,20 @@
 
 > **The stock sleeps. The token doesn't.**
 
-AFTERBELL is a practical safety layer for tokenized U.S. equities. It watches the
-always-open token market, compares it with the hours and condition of the
-underlying stock market, and gives an agent a defensible maximum order size.
+**AFTERBELL is an autonomous safety agent for AI agents trading Binance bStocks
+through Agent OS.** It watches the always-open token market against the hours
+and condition of the U.S. stock market underneath it, notices material safety
+changes without being asked, and gives a trading agent the largest defensible
+order size before anything reaches execution.
 
-It does not predict prices. It does not choose trades. It does not hold an
-exchange credential. It makes the dangerous moments visible, and through its
-own governed handoff it makes unsafe size impossible to approve by accident.
+The AI agent owns the trade intent. AFTERBELL independently owns the safety
+limit. Binance Agent OS owns authenticated execution.
+
+AFTERBELL does not predict prices, choose investments, or hold an exchange
+credential. Its financial decisions are deterministic by design: a language
+model may explain a result, but it cannot choose a price, threshold, amount, or
+outcome, and it cannot overturn a refusal. Through its own governed handoff,
+unsafe size is impossible to approve by accident.
 
 Built for the **Binance Agent OS Mini Hackathon, Track A**.
 
@@ -24,19 +31,19 @@ Built for the **Binance Agent OS Mini Hackathon, Track A**.
 
 ## Architecture
 
-AFTERBELL is the safety boundary inside an Agent OS trading-agent workflow.
-Any MCP-capable AI agent can use it before it acts. Three parties, and each
-owns exactly one thing:
+AFTERBELL is the autonomous safety agent inside an Agent OS trading workflow.
+Any compatible AI trading agent can use its MCP tools before it acts. Two
+agents and one exchange, each owning exactly one thing:
 
 ```text
                     ┌─────────────────────────────────────┐
-                    │       any MCP-capable AI agent      │
-                    │    owns the intent: what to trade   │
+                    │      any AI trading agent           │
+                    │  owns the intent: what to trade     │
                     └──────┬───────────────────────┬──────┘
                            │ 1. propose a trade    │
                            ▼                       │
         ┌──────────────────────────────────┐       │
-        │        AFTERBELL over MCP        │       │
+        │   AFTERBELL — safety agent       │       │
         │   owns the limit · holds no key  │       │
         ├──────────────────────────────────┤       │
         │  get_safety_posture              │       │
