@@ -1,4 +1,4 @@
-"""Judge-facing dashboard contract tests."""
+"""Operational dashboard contract tests."""
 from __future__ import annotations
 
 import json
@@ -6,11 +6,11 @@ import json
 import afterbell.dashboard as dashboard
 
 
-def test_judge_facing_page_has_afterbell_sections_not_reference_branding():
-    assert "JUDGE BRIEF" in dashboard.PAGE
-    assert "LIVE GUARD" in dashboard.PAGE
-    assert "EVIDENCE PACK" in dashboard.PAGE
-    assert "AUDIT TRAIL" in dashboard.PAGE
+def test_operational_console_page_has_afterbell_sections_not_reference_branding():
+    assert "Decision console" in dashboard.PAGE
+    assert "Baseline coverage" in dashboard.PAGE
+    assert "Policy review" in dashboard.PAGE
+    assert "Receipt activity" in dashboard.PAGE
     assert "Deltr" not in dashboard.PAGE
 
 
@@ -29,3 +29,27 @@ def test_dashboard_exposes_generated_evidence_without_recomputing_it(
 
     assert dashboard._evaluation_metrics()["Live evaluations receipted"] == "42"
     assert dashboard._backup_state()["status"] == "OK"
+
+def test_tail_records_reads_only_complete_recent_rows(tmp_path):
+    ledger = tmp_path / "events.jsonl"
+    ledger.write_bytes(
+        b'{"seq":1}\n{"seq":2}\n{"seq":3}\n{"seq":4}\n')
+    assert [row["seq"] for row in dashboard._tail_records(ledger, 2)] == [3, 4]
+
+
+def test_published_baselines_keep_coverage_separate_from_policy(
+        monkeypatch, tmp_path):
+    calibration = tmp_path / "calibration.md"
+    calibration.write_text(
+        "| Symbol | State | n | Median half-spread (bps) | "
+        "Median depth ±1% (USDT) | p95 | p05 |\n"
+        "|---|---|---:|---:|---:|---:|---:|\n"
+        "| NVDABUSDT | CLOSED_HOLIDAY | 1440 | 0.2 | 580000 | 1 | 2 |\n"
+        "| NVDABUSDT | RTH_OPEN | 781 | 1.1 | 601000 | 2 | 3 |\n")
+    monkeypatch.setattr(dashboard, "CALIBRATION", calibration)
+
+    baseline = dashboard._published_baselines(300)["NVDABUSDT"]
+
+    assert baseline.status == "CALIBRATED"
+    assert baseline.n_by_state["CLOSED_HOLIDAY"] == 1440
+    assert baseline.spread_ratio(2.2) == 2.0
