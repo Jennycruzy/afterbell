@@ -111,11 +111,19 @@ afterbell         https://afterbell.site/mcp             enabled  Unsupported
 binance-agent-os  https://agent.binance.com/mcp/agentic  enabled  OAuth
 ```
 
-`Unsupported` in the auth column is the correct reading: AFTERBELL has no
-sign-in because it has nothing to protect. The credential lives on the other
-row, with the party whose job is execution. Codex is one client that has been
-used against this server, including for the recorded live order; it is not a
-dependency.
+`Unsupported` in the auth column is `auth_status`: it describes the sign-in a
+server offers, not a problem. AFTERBELL offers none, because it has nothing to
+protect. The credential lives on the other row, with the party whose job is
+execution.
+
+Codex is one client, not a dependency, and it is worth being exact about what
+has been demonstrated with it. Codex discovers this server and resolves its
+tools. Codex is also the client that placed the one recorded live order — but
+it did that through Binance Agent OS, submitting a signed authorization this
+package had already issued, which is a different path from calling the tools
+above. Note that `codex exec` refuses MCP calls non-interactively with
+`MCP tool call requires approval, but approval policy is never`; that is the
+client's own gate, unrelated to this server.
 
 ### What the agent actually sees
 
