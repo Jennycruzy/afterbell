@@ -21,6 +21,7 @@ Built for the **Binance Agent OS Mini Hackathon, Track A**.
 
 | | |
 |---|---|
+| **Check it yourself** | [Four commands, no key needed](#verify-it-yourself) |
 | **Live dashboard** | <https://afterbell.site> — running now, updates every minute |
 | **Public MCP endpoint** | `https://afterbell.site/mcp` — three non-executing tools, no key needed |
 | **How it fits together** | [Architecture](#architecture) |
@@ -28,6 +29,54 @@ Built for the **Binance Agent OS Mini Hackathon, Track A**.
 | **Measured baselines** | [`docs/calibration.md`](docs/calibration.md) |
 | **Safety-test results** | [`docs/evaluation.md`](docs/evaluation.md) |
 | **The one real order** | [`docs/live-acceptance.md`](docs/live-acceptance.md) |
+
+## Verify it yourself
+
+Nothing below needs a key, an account, or a signup. Every command runs against
+the system that is live right now.
+
+**Is it up?**
+
+```bash
+curl -sS https://afterbell.site/healthz
+# ok
+```
+
+**What tools does it offer an AI agent?**
+
+```bash
+curl -sS https://afterbell.site/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+# evaluate_order · get_market_state · get_safety_posture
+```
+
+**Ask it to size a real order.** This is the whole product in one call:
+
+```bash
+curl -sS https://afterbell.site/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"evaluate_order",
+       "arguments":{"symbol":"NVDABUSDT","side":"BUY","notional":5000}}}'
+```
+
+You asked for 5,000 USDT of Nvidia bStock. The answer names the largest size it
+will defend, the check that set it, and every measurement behind it.
+
+Asking anonymously, the permitted size is **0**. That is the system working, not
+a broken endpoint: an anonymous request carries no signed account report, and an
+absent report is not read as an empty account. The other checks answer in full
+regardless, so you can still read exactly what the market looked like. A request
+that did carry the required evidence is recorded in
+[`docs/live-acceptance.md`](docs/live-acceptance.md): 5.00 requested, 5.00
+permitted, 4.86192 actually spent, Binance order 54422149.
+
+**Connect your own agent.** Any MCP-capable client can use it. With Codex:
+
+```bash
+codex mcp add afterbell --url https://afterbell.site/mcp
+```
+
+**Or just open it.** <https://afterbell.site> — the same decision, updating every
+minute, with the measurements behind it.
 
 ## Architecture
 

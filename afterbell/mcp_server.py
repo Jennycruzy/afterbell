@@ -30,6 +30,8 @@ sits behind the nginx that already terminates TLS for the dashboard.
 """
 from __future__ import annotations
 
+import re
+
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -141,6 +143,16 @@ TOOLS = [
     },
 ]
 
+
+
+_CHECK_LABEL = re.compile(r"\b(" + "|".join(sorted(CHECK_NAMES, reverse=True)) + r")\b")
+
+
+def _plain(value: str | None) -> str | None:
+    """Answer in the check names the docs and dashboard use."""
+    if not value:
+        return value
+    return _CHECK_LABEL.sub(lambda m: CHECK_NAMES[m.group(1)], value)
 
 class ToolError(RuntimeError):
     """A bad request from the caller, reported as a tool error not a crash."""
@@ -419,8 +431,8 @@ def evaluate_order(args: dict[str, Any]) -> dict[str, Any]:
         "verdict": d.verdict.value,
         "requested_notional": d.requested_notional,
         "permitted_notional": d.allowed_notional,
-        "binding_constraint": d.binding_constraint,
-        "rationale": d.rationale,
+        "binding_constraint": _plain(d.binding_constraint),
+        "rationale": _plain(d.rationale),
         "market_state": ctx.clock.state.value,
         "reference_age": (None if ctx.reference_age_s is None
                           else format_age(ctx.reference_age_s)),
